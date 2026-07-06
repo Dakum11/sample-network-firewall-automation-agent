@@ -1,0 +1,132 @@
+{
+  "comment": "OpenSearch index mapping for AWS Network Firewall logs. Create this index pattern in your OpenSearch domain.",
+  "index_pattern": "firewall-logs-*",
+  "mappings": {
+    "properties": {
+      "@timestamp": {
+        "type": "date"
+      },
+      "event": {
+        "properties": {
+          "action": {
+            "type": "keyword",
+            "description": "Firewall action: pass, drop, alert, reject"
+          },
+          "dataset": {
+            "type": "keyword",
+            "description": "Log type: alert, flow, netflow"
+          }
+        }
+      },
+      "source": {
+        "properties": {
+          "ip": {
+            "type": "ip"
+          },
+          "port": {
+            "type": "integer"
+          }
+        }
+      },
+      "destination": {
+        "properties": {
+          "ip": {
+            "type": "ip"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "domain": {
+            "type": "keyword"
+          }
+        }
+      },
+      "network": {
+        "properties": {
+          "protocol": {
+            "type": "keyword",
+            "description": "Protocol: tcp, udp, icmp"
+          },
+          "direction": {
+            "type": "keyword",
+            "description": "Traffic direction: inbound, outbound"
+          },
+          "bytes": {
+            "type": "long"
+          },
+          "packets": {
+            "type": "long"
+          }
+        }
+      },
+      "rule": {
+        "properties": {
+          "name": {
+            "type": "keyword"
+          },
+          "id": {
+            "type": "keyword"
+          },
+          "category": {
+            "type": "keyword"
+          }
+        }
+      },
+      "aws": {
+        "properties": {
+          "account_id": {
+            "type": "keyword"
+          },
+          "region": {
+            "type": "keyword"
+          },
+          "firewall_name": {
+            "type": "keyword"
+          }
+        }
+      },
+      "tls": {
+        "properties": {
+          "sni": {
+            "type": "keyword",
+            "description": "TLS Server Name Indication"
+          },
+          "version": {
+            "type": "keyword"
+          }
+        }
+      }
+    }
+  },
+  "sample_documents": [
+    {
+      "@timestamp": "2024-07-01T14:30:00Z",
+      "event": {"action": "drop", "dataset": "alert"},
+      "source": {"ip": "10.0.1.15", "port": 52314},
+      "destination": {"ip": "93.184.216.34", "port": 443, "domain": "example.com"},
+      "network": {"protocol": "tcp", "direction": "outbound", "bytes": 0, "packets": 1},
+      "rule": {"name": "default-deny-outbound", "id": "5", "category": "default"},
+      "aws": {"account_id": "111222333444", "region": "us-east-1", "firewall_name": "prod-network-firewall"},
+      "tls": {"sni": "example.com"}
+    },
+    {
+      "@timestamp": "2024-07-01T14:31:00Z",
+      "event": {"action": "pass", "dataset": "flow"},
+      "source": {"ip": "10.0.1.20", "port": 48291},
+      "destination": {"ip": "52.94.236.0", "port": 443, "domain": "dynamodb.us-east-1.amazonaws.com"},
+      "network": {"protocol": "tcp", "direction": "outbound", "bytes": 2048, "packets": 12},
+      "rule": {"name": "allow-aws-services", "id": "2", "category": "aws"},
+      "aws": {"account_id": "111222333444", "region": "us-east-1", "firewall_name": "prod-network-firewall"},
+      "tls": {"sni": "dynamodb.us-east-1.amazonaws.com", "version": "1.3"}
+    },
+    {
+      "@timestamp": "2024-07-01T14:32:00Z",
+      "event": {"action": "alert", "dataset": "alert"},
+      "source": {"ip": "10.1.2.50", "port": 39102},
+      "destination": {"ip": "203.0.113.50", "port": 22},
+      "network": {"protocol": "tcp", "direction": "outbound", "bytes": 500, "packets": 5},
+      "rule": {"name": "alert-outbound-ssh", "id": "3000001", "category": "security"},
+      "aws": {"account_id": "555666777888", "region": "us-east-1", "firewall_name": "dev-network-firewall"}
+    }
+  ]
+}

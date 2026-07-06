@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 80" width="200" height="80">
+  <!-- Cloud shape -->
+  <path d="M50 55 C30 55 20 45 20 35 C20 25 28 17 38 16 C40 8 48 3 58 3 C70 3 80 11 82 22 C83 22 84 21.5 85 21.5 C93 21.5 100 28.5 100 36.5 C100 44.5 93 51 85 51 L50 55 Z" fill="#232F3E" opacity="0.9"/>
+  <path d="M90 60 C75 60 67 52 67 44 C67 36 73 29 81 28 C83 21 89 17 97 17 C107 17 115 24 117 33 C118 33 119 32.5 120 32.5 C127 32.5 133 38 133 45 C133 52 127 57.5 120 57.5 L90 60 Z" fill="#527FFF" opacity="0.85"/>
+  <!-- Shield -->
+  <path d="M148 20 L148 45 C148 58 165 65 165 65 C165 65 182 58 182 45 L182 20 L165 14 Z" fill="none" stroke="#FF9900" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M155 25 L155 44 C155 53 165 58 165 58 C165 58 175 53 175 44 L175 25 L165 21 Z" fill="#FF9900" opacity="0.2"/>
+  <!-- Checkmark inside shield -->
+  <polyline points="157,40 163,46 174,33" fill="none" stroke="#FF9900" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

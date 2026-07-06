@@ -1,0 +1,41 @@
+default_agent: github_agent
+agents:
+  github_agent:
+    name: github_agent
+    entrypoint: /Users/awscook/projects/customers/rio/github-agent.py
+    platform: linux/arm64
+    container_runtime: docker
+    source_path: /Users/awscook/projects/customers/rio
+    aws:
+      execution_role: arn:aws:iam::948775074380:role/AmazonBedrockAgentCoreSDKRuntime-ap-southeast-2-283f949a59
+      execution_role_auto_create: false
+      account: '948775074380'
+      region: ap-southeast-2
+      ecr_repository: 948775074380.dkr.ecr.ap-southeast-2.amazonaws.com/bedrock-agentcore-github_agent
+      ecr_auto_create: false
+      network_configuration:
+        network_mode: PUBLIC
+        network_mode_config: null
+      protocol_configuration:
+        server_protocol: HTTP
+      observability:
+        enabled: true
+    bedrock_agentcore:
+      agent_id: github_agent-1wWhya82a7
+      agent_arn: arn:aws:bedrock-agentcore:ap-southeast-2:948775074380:runtime/github_agent-1wWhya82a7
+      agent_session_id: e4b238e2-21cf-4d8d-8fc6-a0a6e156fded
+    codebuild:
+      project_name: bedrock-agentcore-github_agent-builder
+      execution_role: arn:aws:iam::948775074380:role/AmazonBedrockAgentCoreSDKCodeBuild-ap-southeast-2-283f949a59
+      source_bucket: bedrock-agentcore-codebuild-sources-948775074380-ap-southeast-2
+    memory:
+      mode: NO_MEMORY
+      memory_id: null
+      memory_arn: null
+      memory_name: null
+      event_expiry_days: 30
+      first_invoke_memory_check_done: false
+      was_created_by_toolkit: false
+    authorizer_configuration: null
+    request_header_configuration: null
+    oauth_configuration: null

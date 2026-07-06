@@ -1,0 +1,60 @@
+# =============================================================================
+# Sample Suricata Rules for AWS Network Firewall
+# =============================================================================
+# These rules demonstrate the format expected by the Firewall Automation Agent.
+# Place rules in the appropriate directory based on action type:
+#   rules/allow/   - Pass rules (allow traffic)
+#   rules/drop/    - Drop rules (block traffic)
+#   rules/alert/   - Alert rules (log only)
+# =============================================================================
+
+# --- ALLOW RULES (pass) ---
+
+# Description: Allow HTTPS access to external analytics platform
+# Source AWS Accounts: 111222333444 (acme-production)
+# Destination: analytics.example.com
+# Business Justification: Production analytics data pipeline
+# SRA Number: SRA-2024-0001
+# Created By: John Smith
+# Created Date: 2024-06-15T10:00:00Z
+pass tls [10.0.0.0/16] any -> $EXTERNAL_NET 443 (msg:"Allow HTTPS to analytics.example.com from acme-production"; tls.sni; content:"analytics.example.com"; nocase; ssl_state:client_hello; flow:to_server, established; sid:1000001; rev:1;)
+
+# Description: Allow HTTPS access to API gateway
+# Source AWS Accounts: 555666777888 (acme-development)
+# Destination: api.partner-service.io
+# Business Justification: Development integration testing
+# SRA Number: SRA-2024-0002
+# Created By: Jane Doe
+# Created Date: 2024-07-01T14:30:00Z
+pass tls [10.1.0.0/16] any -> $EXTERNAL_NET 443 (msg:"Allow HTTPS to api.partner-service.io from acme-development"; tls.sni; content:"api.partner-service.io"; nocase; ssl_state:client_hello; flow:to_server, established; sid:1000002; rev:1;)
+
+# --- DROP RULES (block) ---
+
+# Description: Block traffic to known malicious IP range
+# Source AWS Accounts: All
+# Destination: 198.51.100.0/24 (known C2 infrastructure)
+# Business Justification: Threat intelligence - active C2 servers
+# SRA Number: SRA-2024-THREAT-001
+# Created By: Security Operations
+# Created Date: 2024-05-20T09:00:00Z
+drop ip any any -> 198.51.100.0/24 any (msg:"Block known malicious C2 infrastructure"; sid:2000001; rev:1;)
+
+# --- ALERT RULES (log only) ---
+
+# Description: Alert on unusual outbound SSH traffic
+# Source AWS Accounts: All production accounts
+# Destination: Any external IP on port 22
+# Business Justification: Security monitoring - detect potential data exfiltration
+# SRA Number: N/A (monitoring only)
+# Created By: Security Operations
+# Created Date: 2024-04-10T11:00:00Z
+alert tcp [10.0.0.0/8] any -> $EXTERNAL_NET 22 (msg:"Alert: Outbound SSH to external host"; flow:to_server, established; sid:3000001; rev:1;)
+
+# Description: Alert on DNS queries to uncommon TLDs
+# Source AWS Accounts: All
+# Destination: DNS servers
+# Business Justification: Detect potential DNS tunneling or DGA domains
+# SRA Number: N/A (monitoring only)
+# Created By: Security Operations
+# Created Date: 2024-04-15T16:00:00Z
+alert dns any any -> any 53 (msg:"Alert: DNS query to uncommon TLD"; dns.query; content:".xyz"; nocase; sid:3000002; rev:1;)

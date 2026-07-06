@@ -1,0 +1,15 @@
+[project]
+name = "aws-network-firewall-automation-agent"
+version = "1.0.0"
+description = "Multi-agent system for automated AWS Network Firewall rule management using Amazon Bedrock AgentCore."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "bedrock-agentcore>=1.0.0",
+    "bedrock-agentcore-starter-toolkit>=0.1.25",
+    "boto3>=1.40.53",
+    "opensearch-py>=3.0.0",
+    "strands-agents>=1.12.0",
+    "strands-agents-tools>=0.2.11",
+    "thefuzz>=0.22.1",
+]

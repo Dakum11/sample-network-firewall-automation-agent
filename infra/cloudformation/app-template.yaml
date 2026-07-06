@@ -1,0 +1,435 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  ECS Fargate Service with Internal Application Load Balancer
+
+Parameters:
+  ProjectName:
+    Type: String
+    Description: Name of project
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: "VPC for ECS and ALB"
+
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: "Subnets for ECS and ALB"
+
+  ContainerImage:
+    Type: String
+    Description: "URI of the Docker image in ECR"
+
+  WebConsoleRootDomainName:
+    Type: String
+    Description: The root domain name for the web console
+
+  HostedZoneId:
+    Type: AWS::Route53::HostedZone::Id
+    Description: Route53 Hosted Zone ID for the domain
+
+  AzureADTenantId:
+    Type: String
+    Description: Azure AD Tenant ID for federation
+
+  AzureADClientId:
+    Type: String
+    Description: Azure AD Client ID for federation
+
+  AzureADClientSecret:
+    Type: String
+    NoEcho: true
+    Description: Azure AD Client Secret for federation
+
+Resources:
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Allow HTTP traffic to ALB from VPC"
+      GroupName: !Sub ${ProjectName}-ALB-SG
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 10.0.0.0/8 # TODO: Replace with your VPC CIDR range
+
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Allow ECS tasks to receive traffic from ALB"
+      GroupName: !Sub ${ProjectName}-ECS-SG
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8501
+          ToPort: 8501
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${ProjectName}-ALB
+      Subnets: !Ref SubnetIds
+      SecurityGroups: [!Ref ALBSecurityGroup]
+      Scheme: internal # <-- Makes ALB private/internal
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${ProjectName}-ALB-TG
+      VpcId: !Ref VpcId
+      Port: 8501
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckPath: /
+      Matcher:
+        HttpCode: 200-399
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: authenticate-cognito
+          AuthenticateCognitoConfig:
+            UserPoolArn: !GetAtt UserPool.Arn
+            UserPoolClientId: !Ref UserPoolClient
+            UserPoolDomain: !Ref UserPoolDomain
+            OnUnauthenticatedRequest: authenticate
+            Scope: "openid profile email"
+            SessionCookieName: AWSELBAuthSessionCookie
+            SessionTimeout: 3600
+          Order: 1
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+          Order: 2
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref WebConsoleCertificate
+
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${ProjectName}-ECS-Cluster
+
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: !Sub ECS Task Execution role for ${ProjectName}
+      RoleName: !Sub ${ProjectName}-ECS-Task-Execution-Role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: !Sub ECS Task role for ${ProjectName}
+      RoleName: !Sub ${ProjectName}-ECS-Task-Role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/BedrockAgentCoreFullAccess
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /ecs/${ProjectName}-ECS-Logs
+      RetentionInDays: 14
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${ProjectName}-ECS-Task-Definition-Family
+      Cpu: "1024"
+      Memory: "2048"
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: app
+          Image: !Ref ContainerImage
+          Essential: true
+          PortMappings:
+            - ContainerPort: 8501
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+
+  ECSService:
+    Type: AWS::ECS::Service
+    DependsOn: Listener
+    Properties:
+      ServiceName: !Sub ${ProjectName}-ECS-Service
+      Cluster: !Ref ECSCluster
+      DesiredCount: 1
+      LaunchType: FARGATE
+      TaskDefinition: !Ref TaskDefinition
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Ref SubnetIds
+          SecurityGroups: [!Ref ECSSecurityGroup]
+      LoadBalancers:
+        - TargetGroupArn: !Ref TargetGroup
+          ContainerName: app
+          ContainerPort: 8501
+
+  # SSL Certificate for custom domain
+  WebConsoleCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Sub ${WebConsoleRootDomainName}
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Sub ${WebConsoleRootDomainName}
+          HostedZoneId: !Ref HostedZoneId
+
+  # DNS Record for Web Console
+  WebConsoleDNSRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub ${WebConsoleRootDomainName}.
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt LoadBalancer.DNSName
+        HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID # CloudFront hosted zone ID (always the same)
+        EvaluateTargetHealth: true
+
+  # Cognito User Pool
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ${ProjectName}-Cognito-UserPool
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+        - Name: name
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+      MfaConfiguration: "OFF"
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      EmailConfiguration:
+        EmailSendingAccount: COGNITO_DEFAULT
+
+  # User Pool Client
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: !Sub ${ProjectName}-Cognito-UserPool-Client
+      GenerateSecret: true
+      SupportedIdentityProviders:
+        - !Ref AzureADIdentityProvider
+      CallbackURLs:
+        - !Sub https://${WebConsoleRootDomainName}/oauth2/idpresponse
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - email
+        - openid
+        - profile
+      AllowedOAuthFlowsUserPoolClient: true
+      PreventUserExistenceErrors: ENABLED
+      RefreshTokenValidity: 30
+      AccessTokenValidity: 1
+      IdTokenValidity: 1
+      TokenValidityUnits:
+        AccessToken: hours
+        IdToken: hours
+        RefreshToken: days
+
+  # Cognito Domain
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub fw-automation-${AWS::AccountId}
+      UserPoolId: !Ref UserPool
+
+  # Azure AD Identity Provider for Cognito
+  AzureADIdentityProvider:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Properties:
+      UserPoolId: !Ref UserPool
+      ProviderName: AzureAD
+      ProviderType: OIDC
+      ProviderDetails:
+        client_id: !Ref AzureADClientId
+        client_secret: !Ref AzureADClientSecret
+        attributes_request_method: GET
+        oidc_issuer: !Sub https://login.microsoftonline.com/${AzureADTenantId}/v2.0
+        authorize_scopes: openid profile email
+      AttributeMapping:
+        email: email
+        name: name
+        username: sub
+
+  AgentCoreExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: !Sub AgentCore Execution role for ${ProjectName}
+      RoleName: !Sub ${ProjectName}-AgentCore-Execution-Role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock-agentcore.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:*
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/BedrockAgentCoreFullAccess
+      Policies:
+        - PolicyName: AgentCore-Execution-Policy
+          PolicyDocument: !Sub |
+            {
+              "Version":"2012-10-17",		 	 	 
+              "Statement": [
+                  {
+                      "Sid": "ECRImageAccess",
+                      "Effect": "Allow",
+                      "Action": [
+                          "ecr:BatchGetImage",
+                          "ecr:GetDownloadUrlForLayer"
+                      ],
+                      "Resource": [
+                          "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/*"
+                      ]        
+                  },
+                  {
+                      "Effect": "Allow",
+                      "Action": [
+                          "logs:DescribeLogStreams",
+                          "logs:CreateLogGroup"
+                      ],
+                      "Resource": [
+                          "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/bedrock-agentcore/runtimes/*"
+                      ]
+                  },
+                  {
+                      "Effect": "Allow",
+                      "Action": [
+                          "logs:DescribeLogGroups"
+                      ],
+                      "Resource": [
+                          "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*"
+                      ]
+                  },
+                  {
+                      "Effect": "Allow",
+                      "Action": [
+                          "logs:CreateLogStream",
+                          "logs:PutLogEvents"
+                      ],
+                      "Resource": [
+                          "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/bedrock-agentcore/runtimes/*:log-stream:*"
+                      ]
+                  },
+                  {
+                      "Sid": "ECRTokenAccess",
+                      "Effect": "Allow",
+                      "Action": [
+                          "ecr:GetAuthorizationToken"
+                      ],
+                      "Resource": "*"
+                  },
+                  {
+                  "Effect": "Allow", 
+                  "Action": [ 
+                      "xray:PutTraceSegments", 
+                      "xray:PutTelemetryRecords", 
+                      "xray:GetSamplingRules", 
+                      "xray:GetSamplingTargets"
+                      ],
+                   "Resource": [ "*" ] 
+                   },
+                   {
+                      "Effect": "Allow",
+                      "Resource": "*",
+                      "Action": "cloudwatch:PutMetricData",
+                      "Condition": {
+                          "StringEquals": {
+                              "cloudwatch:namespace": "bedrock-agentcore"
+                          }
+                      }
+                  },
+                  {
+                      "Sid": "GetAgentAccessToken",
+                      "Effect": "Allow",
+                      "Action": [
+                          "bedrock-agentcore:GetWorkloadAccessToken",
+                          "bedrock-agentcore:GetWorkloadAccessTokenForJWT",
+                          "bedrock-agentcore:GetWorkloadAccessTokenForUserId"
+                      ],
+                      "Resource": [
+                        "arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:workload-identity-directory/default",
+                        "arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:workload-identity-directory/default/workload-identity/agentName-*"
+                      ]
+                  },
+                   {"Sid": "BedrockModelInvocation", 
+                   "Effect": "Allow", 
+                   "Action": [ 
+                          "bedrock:InvokeModel", 
+                          "bedrock:InvokeModelWithResponseStream"
+                        ], 
+                  "Resource": [
+                      "arn:aws:bedrock:*::foundation-model/*",
+                      "arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:*"
+                  ]
+                  }
+              ]
+            }
+
+
+  AgentCoreRuntimeSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "SG for AgentCore Runtime"
+      GroupName: !Sub ${ProjectName}-BAC-R-SG
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref ECSSecurityGroup
+
+Outputs:
+  LoadBalancerDNS:
+    Description: "The DNS name of the ALB"
+    Value: !GetAtt LoadBalancer.DNSName

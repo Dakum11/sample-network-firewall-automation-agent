@@ -1,0 +1,46 @@
+default_agent: ipam_agent
+agents:
+  ipam_agent:
+    name: ipam_agent
+    entrypoint: /home/sakhan/IST-AWS-Firewall-Automation/notebooks/ipam-agent/IPAMAgent-main/ipam_agent.py
+    platform: linux/arm64
+    container_runtime: none
+    source_path: /home/sakhan/IST-AWS-Firewall-Automation/notebooks/ipam-agent/IPAMAgent-main
+    aws:
+      execution_role: arn:aws:iam::YOUR_ACCOUNT_ID:role/FW-Automation-AgentCore-Execution-Role
+      execution_role_auto_create: false
+      account: 'YOUR_ACCOUNT_ID'
+      region: ap-southeast-2
+      ecr_repository: YOUR_ACCOUNT_ID.dkr.ecr.ap-southeast-2.amazonaws.com/bedrock-agentcore-ipam_agent
+      ecr_auto_create: false
+      network_configuration:
+        network_mode: VPC
+        network_mode_config:
+          security_groups:
+          - sg-0302b0e114f205955
+          subnets:
+          - subnet-0346050dd733b71b9
+          - subnet-0ee37898a908e35b6
+      protocol_configuration:
+        server_protocol: HTTP
+      observability:
+        enabled: true
+    bedrock_agentcore:
+      agent_id: ipam_agent-310fW84JHy
+      agent_arn: arn:aws:bedrock-agentcore:ap-southeast-2:YOUR_ACCOUNT_ID:runtime/ipam_agent-310fW84JHy
+      agent_session_id: 66d23c46-1e7b-4986-ba81-7594340e1ff4
+    codebuild:
+      project_name: bedrock-agentcore-ipam_agent-builder
+      execution_role: arn:aws:iam::YOUR_ACCOUNT_ID:role/AmazonBedrockAgentCoreSDKCodeBuild-ap-southeast-2-e78e3411e2
+      source_bucket: bedrock-agentcore-codebuild-sources-YOUR_ACCOUNT_ID-ap-southeast-2
+    memory:
+      mode: NO_MEMORY
+      memory_id: null
+      memory_arn: null
+      memory_name: null
+      event_expiry_days: 30
+      first_invoke_memory_check_done: false
+      was_created_by_toolkit: false
+    authorizer_configuration: null
+    request_header_configuration: null
+    oauth_configuration: null

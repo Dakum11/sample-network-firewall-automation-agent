@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AWS Network Firewall Automation Agent — Architecture</title>
+<base target="_blank">
+<style>
+:root {
+  --bg: #0f1419;
+  --surface: #1a2332;
+  --surface-raised: #243044;
+  --border: #2d3f56;
+  --text: #e6edf3;
+  --text-muted: #8b9db5;
+  --accent: #f89820;
+  --accent-dim: rgba(248, 152, 32, 0.15);
+  --blue: #58a6ff;
+  --green: #3fb950;
+  --purple: #bc8cff;
+  --pink: #f778ba;
+  --teal: #39d3c5;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  padding: 2rem;
+  min-height: 100vh;
+}
+
+h1 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  margin-bottom: 0.25rem;
+}
+
+.subtitle {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-bottom: 2.5rem;
+  max-width: 56ch;
+  line-height: 1.5;
+}
+
+.diagram {
+  position: relative;
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+/* Tier labels */
+.tier-label {
+  position: absolute;
+  left: -1rem;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  transform: rotate(180deg);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+/* Layers */
+.layer {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+  position: relative;
+}
+
+.layer::after {
+  content: '';
+  position: absolute;
+  bottom: -0.75rem;
+  left: 50%;
+  width: 2px;
+  height: 0.75rem;
+  background: var(--border);
+}
+
+.layer:last-child::after { display: none; }
+
+/* Connectors */
+.connectors {
+  display: flex;
+  justify-content: center;
+  gap: 0;
+  margin-bottom: 1.5rem;
+  position: relative;
+  height: 2rem;
+}
+
+.connector-line {
+  position: absolute;
+  top: 0;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  background: var(--border);
+}
+
+.connector-drops {
+  display: flex;
+  justify-content: space-between;
+  position: absolute;
+  top: 0;
+  left: 10%;
+  right: 10%;
+}
+
+.connector-drop {
+  width: 1px;
+  height: 2rem;
+  background: var(--border);
+}
+
+/* Nodes */
+.node {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  background: var(--surface);
+  text-align: center;
+  transition: border-color 0.2s, transform 0.2s;
+  position: relative;
+}
+
+.node:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.node-title {
+  font-weight: 600;
+  font-size: 0.85rem;
+  margin-bottom: 0.3rem;
+  white-space: nowrap;
+}
+
+.node-desc {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  line-height: 1.3;
+}
+
+.node-icon {
+  font-size: 1.3rem;
+  margin-bottom: 0.4rem;
+}
+
+/* Node variants */
+.node--user { border-color: var(--green); background: rgba(63, 185, 80, 0.08); }
+.node--supervisor { border-color: var(--accent); background: var(--accent-dim); min-width: 320px; }
+.node--agent { min-width: 130px; }
+.node--agent:nth-child(1) { border-color: var(--blue); }
+.node--agent:nth-child(2) { border-color: var(--teal); }
+.node--agent:nth-child(3) { border-color: var(--purple); }
+.node--agent:nth-child(4) { border-color: var(--pink); }
+.node--agent:nth-child(5) { border-color: var(--green); }
+.node--service { border-color: var(--border); background: var(--surface-raised); min-width: 110px; }
+
+/* Badge */
+.badge {
+  display: inline-block;
+  font-size: 0.55rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  margin-top: 0.3rem;
+}
+
+.badge--bedrock { background: rgba(248, 152, 32, 0.2); color: var(--accent); }
+.badge--aws { background: rgba(88, 166, 255, 0.15); color: var(--blue); }
+.badge--external { background: rgba(188, 140, 255, 0.15); color: var(--purple); }
+
+/* Arrow */
+.arrow-down {
+  display: flex;
+  justify-content: center;
+  margin: 0.5rem 0;
+}
+
+.arrow-down svg {
+  width: 20px;
+  height: 20px;
+  opacity: 0.5;
+}
+
+/* Legend */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+/* Footer */
+.footer {
+  margin-top: 2rem;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+/* Services grid */
+.services-row {
+  display: flex;
+  justify-content: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+</style>
+</head>
+<body>
+<h1>AWS Network Firewall Automation Agent</h1>
+<p class="subtitle">Multi-agent architecture using Amazon Bedrock AgentCore for automated firewall rule management with CI/CD integration, IPAM validation, and change management.</p>
+
+<div class="diagram">
+
+  <!-- User Layer -->
+  <div class="layer">
+    <div class="node node--user">
+      <div class="node-icon">👤</div>
+      <div class="node-title">User</div>
+      <div class="node-desc">Natural language requests via chat</div>
+    </div>
+  </div>
+
+  <div class="arrow-down">
+    <svg viewBox="0 0 20 20" fill="none"><path d="M10 4v12M6 12l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+  </div>
+
+  <!-- UI Layer -->
+  <div class="layer">
+    <div class="node">
+      <div class="node-icon">🖥️</div>
+      <div class="node-title">Streamlit Web UI</div>
+      <div class="node-desc">ECS Fargate • ALB • Cognito SSO</div>
+      <div class="badge badge--aws">AWS</div>
+    </div>
+  </div>
+
+  <div class="arrow-down">
+    <svg viewBox="0 0 20 20" fill="none"><path d="M10 4v12M6 12l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+  </div>
+
+  <!-- Supervisor Layer -->
+  <div class="layer">
+    <div class="node node--supervisor">
+      <div class="node-icon">🧠</div>
+      <div class="node-title">Supervisor Agent</div>
+      <div class="node-desc">Intent detection • Task delegation • Response aggregation • Workflow orchestration</div>
+      <div class="badge badge--bedrock">Bedrock AgentCore • Strands SDK • Memory</div>
+    </div>
+  </div>
+
+  <!-- Fan-out connectors -->
+  <div class="connectors">
+    <div class="connector-line"></div>
+    <div class="connector-drops">
+      <div class="connector-drop"></div>
+      <div class="connector-drop"></div>
+      <div class="connector-drop"></div>
+      <div class="connector-drop"></div>
+      <div class="connector-drop"></div>
+    </div>
+  </div>
+
+  <!-- Specialist Agents Layer -->
+  <div class="layer">
+    <div class="node node--agent">
+      <div class="node-icon">📋</div>
+      <div class="node-title">Account Details</div>
+      <div class="node-desc">AWS account metadata lookup</div>
+    </div>
+    <div class="node node--agent">
+      <div class="node-icon">📊</div>
+      <div class="node-title">Firewall Logs</div>
+      <div class="node-desc">Log analysis & traffic queries</div>
+    </div>
+    <div class="node node--agent">
+      <div class="node-icon">🔀</div>
+      <div class="node-title">GitSecOps</div>
+      <div class="node-desc">Rule changes & PR creation</div>
+    </div>
+    <div class="node node--agent">
+      <div class="node-icon">🌐</div>
+      <div class="node-title">IPAM</div>
+      <div class="node-desc">IP/CIDR validation</div>
+    </div>
+    <div class="node node--agent">
+      <div class="node-icon">🎫</div>
+      <div class="node-title">ServiceNow</div>
+      <div class="node-desc">Change requests & CMDB</div>
+    </div>
+  </div>
+
+  <div class="arrow-down">
+    <svg viewBox="0 0 20 20" fill="none"><path d="M10 4v12M6 12l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+  </div>
+
+  <!-- External Services Layer -->
+  <div class="services-row">
+    <div class="node node--service">
+      <div class="node-title">DynamoDB</div>
+      <div class="node-desc">Account metadata</div>
+      <div class="badge badge--aws">AWS</div>
+    </div>
+    <div class="node node--service">
+      <div class="node-title">OpenSearch</div>
+      <div class="node-desc">Firewall logs</div>
+      <div class="badge badge--aws">AWS</div>
+    </div>
+    <div class="node node--service">
+      <div class="node-title">Azure DevOps</div>
+      <div class="node-desc">Git repos & PRs</div>
+      <div class="badge badge--external">External</div>
+    </div>
+    <div class="node node--service">
+      <div class="node-title">IPAM System</div>
+      <div class="node-desc">IP management</div>
+      <div class="badge badge--external">External</div>
+    </div>
+    <div class="node node--service">
+      <div class="node-title">ServiceNow</div>
+      <div class="node-desc">ITSM platform</div>
+      <div class="badge badge--external">External</div>
+    </div>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item">
+      <div class="legend-dot" style="background: var(--accent);"></div>
+      Supervisor (Bedrock AgentCore)
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background: var(--blue);"></div>
+      Specialist Agents
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background: var(--green);"></div>
+      User Interface
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background: var(--border);"></div>
+      Backend Services
+    </div>
+  </div>
+
+</div>
+
+<p class="footer">AWS Network Firewall Automation Agent • Apache 2.0 • github.com/aws-samples/aws-network-firewall-automation-agent</p>
+</body>
+</html>

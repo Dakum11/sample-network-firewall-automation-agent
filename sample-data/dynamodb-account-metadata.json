@@ -1,0 +1,26 @@
+{
+  "Comment": "Sample DynamoDB items for the account-metadata table. Import using AWS CLI or DynamoDB console.",
+  "Items": [
+    {
+      "account-no": {"S": "111222333444"},
+      "account-name": {"S": "acme-production"},
+      "environment": {"S": "Production"},
+      "business-unit": {"S": "Engineering"},
+      "vpc-metadata": {"S": "{\"Vpcs\":[{\"VpcId\":\"vpc-0abc123def456\",\"CidrBlock\":\"10.0.0.0/16\",\"Tags\":[{\"Key\":\"Name\",\"Value\":\"acme-prod-vpc\"}],\"Subnets\":[{\"SubnetId\":\"subnet-0aaa111\",\"CidrBlock\":\"10.0.1.0/24\",\"AvailabilityZone\":\"us-east-1a\",\"AvailableIpAddressCount\":251,\"Tags\":[{\"Key\":\"Name\",\"Value\":\"prod-private-1a\"}]},{\"SubnetId\":\"subnet-0bbb222\",\"CidrBlock\":\"10.0.2.0/24\",\"AvailabilityZone\":\"us-east-1b\",\"AvailableIpAddressCount\":251,\"Tags\":[{\"Key\":\"Name\",\"Value\":\"prod-private-1b\"}]}],\"Endpoints\":[]}]}"}
+    },
+    {
+      "account-no": {"S": "555666777888"},
+      "account-name": {"S": "acme-development"},
+      "environment": {"S": "Development"},
+      "business-unit": {"S": "Engineering"},
+      "vpc-metadata": {"S": "{\"Vpcs\":[{\"VpcId\":\"vpc-0def789ghi012\",\"CidrBlock\":\"10.1.0.0/16\",\"Tags\":[{\"Key\":\"Name\",\"Value\":\"acme-dev-vpc\"}],\"Subnets\":[{\"SubnetId\":\"subnet-0ccc333\",\"CidrBlock\":\"10.1.1.0/24\",\"AvailabilityZone\":\"us-east-1a\",\"AvailableIpAddressCount\":251,\"Tags\":[{\"Key\":\"Name\",\"Value\":\"dev-private-1a\"}]},{\"SubnetId\":\"subnet-0ddd444\",\"CidrBlock\":\"10.1.2.0/24\",\"AvailabilityZone\":\"us-east-1b\",\"AvailableIpAddressCount\":251,\"Tags\":[{\"Key\":\"Name\",\"Value\":\"dev-private-1b\"}]}],\"Endpoints\":[]}]}"}
+    },
+    {
+      "account-no": {"S": "999000111222"},
+      "account-name": {"S": "acme-data-platform"},
+      "environment": {"S": "Production"},
+      "business-unit": {"S": "Data & Analytics"},
+      "vpc-metadata": {"S": "{\"Vpcs\":[{\"VpcId\":\"vpc-0jkl345mno678\",\"CidrBlock\":\"10.2.0.0/16\",\"Tags\":[{\"Key\":\"Name\",\"Value\":\"acme-data-vpc\"}],\"Subnets\":[{\"SubnetId\":\"subnet-0eee555\",\"CidrBlock\":\"10.2.1.0/24\",\"AvailabilityZone\":\"us-east-1a\",\"AvailableIpAddressCount\":251,\"Tags\":[{\"Key\":\"Name\",\"Value\":\"data-private-1a\"}]},{\"SubnetId\":\"subnet-0fff666\",\"CidrBlock\":\"10.2.2.0/24\",\"AvailabilityZone\":\"us-east-1b\",\"AvailableIpAddressCount\":251,\"Tags\":[{\"Key\":\"Name\",\"Value\":\"data-private-1b\"}]}],\"Endpoints\":[]}]}"}
+    }
+  ]
+}
