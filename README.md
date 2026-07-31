@@ -28,7 +28,7 @@ This Guidance demonstrates how to build and deploy a multi-agent system that aut
 - Provides multi-agent specialization so each domain (account context, log analysis, IPAM, Git, ITSM) is handled by a purpose-built agent
 - Preserves approval gates — automation handles everything *except* the human approval step, keeping change control intact
 
-![Architecture Diagram](docs/architecture-diagram.png)
+![Architecture Diagram](docs/screenshot-1.png)
 
 ### Architecture Flow
 
@@ -184,11 +184,25 @@ cd ../..
 
 ```bash
 cd agent
-python deploy.py
+
+# Option A: Use the deploy shell script (edit variables at top of file first)
+./deploy.sh
+
+# Option B: Run deploy.py directly with arguments
+python deploy.py \
+  --region us-east-1 \
+  --account-id <ACCOUNT_ID> \
+  --ecr-repository <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/firewall-automation-agent \
+  --version 1.0.0 \
+  --agent-runtime-id <RUNTIME_ID> \
+  --subnets <SUBNET_1>,<SUBNET_2> \
+  --security-groups <SG_ID> \
+  --role-name FirewallAutomation-AgentCore-Execution-Role
+
 cd ..
 ```
 
-This creates the Bedrock AgentCore runtime, endpoint, and (optionally) memory resource. Note the `AGENT_RUNTIME_ID` from the output.
+This updates the Bedrock AgentCore runtime with the new container image and VPC configuration. Requires `AZURE_DEVOPS_ORG`, `AZURE_DEVOPS_PROJECT`, and `REPO_NAME` environment variables to be set.
 
 ### Step 6: Deploy the web application (CloudFormation)
 
