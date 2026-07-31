@@ -3,10 +3,10 @@
 set -e
 # Script to deploy the agent application
 
-# VARIABLES
-AWS_REGION="ap-southeast-2"
-AWS_ACCOUNT_ID="YOUR_ACCOUNT_ID"
-REPOSITORY_NAME="firewall-automation/agent"
+# VARIABLES — Update these before running
+AWS_REGION="${AWS_REGION:-us-east-1}"
+AWS_ACCOUNT_ID="${AWS_ACCOUNT_ID:-YOUR_ACCOUNT_ID}"
+REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-firewall-automation-agent}"
 
 # DOCKER IMAGE BUILD AND PUSH
 echo "Starting Docker image build and push to ECR..."
