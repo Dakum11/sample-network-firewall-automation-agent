@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AWS Network Firewall Automation Agent</title>
+<style>
+:root {
+  --bg: #0f1419;
+  --surface: #1a2332;
+  --surface-raised: #243044;
+  --border: #2d3f56;
+  --text: #e6edf3;
+  --text-muted: #8b9db5;
+  --accent: #f89820;
+  --blue: #58a6ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --radius: 8px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 300px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  overflow-y: auto;
+}
+
+.sidebar h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.sidebar label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.4rem;
+}
+
+.sidebar select, .sidebar input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.sidebar select:focus, .sidebar input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.btn:hover { opacity: 0.85; }
+
+.btn-primary {
+  background: var(--accent);
+  color: #000;
+}
+
+.btn-danger {
+  background: var(--red);
+  color: #fff;
+}
+
+.btn-secondary {
+  background: var(--surface-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.status {
+  font-size: 0.8rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius);
+}
+
+.status-ok { background: rgba(63, 185, 80, 0.15); color: var(--green); }
+.status-err { background: rgba(248, 81, 73, 0.15); color: var(--red); }
+
+.checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.checkbox-group input[type="checkbox"] {
+  width: auto;
+}
+
+/* Main content */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.header h1 {
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+/* Chat area */
+.chat-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.message {
+  display: flex;
+  gap: 0.75rem;
+  max-width: 85%;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.message-user {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.message-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--surface-raised);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.message-user .message-avatar { background: var(--accent); color: #000; }
+
+.message-bubble {
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.message-user .message-bubble {
+  background: var(--accent);
+  color: #000;
+}
+
+.message-assistant .message-bubble {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+}
+
+.message-bubble .tool-usage {
+  background: rgba(76, 175, 80, 0.15);
+  border-left: 3px solid #4CAF50;
+  padding: 0.4rem 0.75rem;
+  margin: 0.5rem 0;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: #4CAF50;
+}
+
+.message-bubble .section-header {
+  font-weight: 700;
+  font-size: 1em;
+  color: var(--blue);
+  margin: 0.75rem 0 0.25rem;
+}
+
+/* Input area */
+.input-area {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 0.75rem;
+}
+
+.input-area input {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.input-area input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.input-area button {
+  padding: 0.75rem 1.5rem;
+}
+
+/* Loading indicator */
+.typing-indicator {
+  display: flex;
+  gap: 4px;
+  padding: 0.5rem;
+}
+
+.typing-indicator span {
+  width: 6px;
+  height: 6px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  animation: bounce 1.2s infinite;
+}
+
+.typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes bounce {
+  0%, 80%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-6px); }
+}
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <h2>⚙️ Settings</h2>
+
+  <div>
+    <label>AWS Region</label>
+    <select id="region">
+      <option value="us-east-1" selected>US East (N. Virginia)</option>
+      <option value="us-west-2">US West (Oregon)</option>
+      <option value="eu-west-1">EU West (Ireland)</option>
+      <option value="ap-southeast-1">Asia Pacific (Singapore)</option>
+      <option value="ap-southeast-2">Asia Pacific (Sydney)</option>
+    </select>
+  </div>
+
+  <div>
+    <label>Agent</label>
+    <select id="agentSelect"><option value="">Loading...</option></select>
+  </div>
+
+  <div>
+    <label>Version</label>
+    <select id="versionSelect"><option value="">Select agent first</option></select>
+  </div>
+
+  <div>
+    <label>Session ID</label>
+    <input type="text" id="sessionId" readonly>
+    <button class="btn btn-secondary" onclick="newSession()" style="margin-top:0.5rem;width:100%">🔄 New Session</button>
+  </div>
+
+  <div>
+    <label>Display Options</label>
+    <div class="checkbox-group">
+      <label><input type="checkbox" id="showTools" checked> Show tool usage</label>
+      <label><input type="checkbox" id="showThinking"> Show thinking</label>
+    </div>
+  </div>
+
+  <button class="btn btn-danger" onclick="clearChat()" style="width:100%">🗑️ Clear Chat</button>
+
+  <div id="status" class="status status-err">❌ Select an agent</div>
+</aside>
+
+<main class="main">
+  <div class="header">
+    <h1>🛡️ AWS Network Firewall Automation Agent</h1>
+  </div>
+
+  <div class="chat-container" id="chatContainer"></div>
+
+  <div class="input-area">
+    <input type="text" id="messageInput" placeholder="Type your message here..." onkeydown="if(event.key==='Enter')sendMessage()">
+    <button class="btn btn-primary" onclick="sendMessage()">Send</button>
+  </div>
+</main>
+
+<script>
+// State
+let selectedArn = "";
+let agents = [];
+
+// Initialize
+document.addEventListener("DOMContentLoaded", () => {
+  generateSessionId();
+  loadAgents();
+  document.getElementById("region").addEventListener("change", loadAgents);
+  document.getElementById("agentSelect").addEventListener("change", loadVersions);
+});
+
+function getRegion() {
+  return document.getElementById("region").value;
+}
+
+function generateSessionId() {
+  const id = crypto.randomUUID ? crypto.randomUUID() : 
+    "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0;
+      return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+  document.getElementById("sessionId").value = id;
+}
+
+function newSession() {
+  generateSessionId();
+  clearChat();
+}
+
+function clearChat() {
+  document.getElementById("chatContainer").innerHTML = "";
+}
+
+async function loadAgents() {
+  const select = document.getElementById("agentSelect");
+  select.innerHTML = '<option value="">Loading...</option>';
+  
+  try {
+    const resp = await fetch(`/api/agents?region=${getRegion()}`);
+    const data = await resp.json();
+    agents = data.agents || [];
+    
+    if (agents.length === 0) {
+      select.innerHTML = '<option value="">No agents found</option>';
+      updateStatus(false);
+      return;
+    }
+
+    select.innerHTML = agents.map(a => 
+      `<option value="${a.id}">${a.name}</option>`
+    ).join("");
+
+    loadVersions();
+  } catch (e) {
+    select.innerHTML = '<option value="">Error loading agents</option>';
+    updateStatus(false);
+  }
+}
+
+async function loadVersions() {
+  const agentId = document.getElementById("agentSelect").value;
+  const select = document.getElementById("versionSelect");
+  
+  if (!agentId) {
+    select.innerHTML = '<option value="">Select agent first</option>';
+    updateStatus(false);
+    return;
+  }
+
+  select.innerHTML = '<option value="">Loading...</option>';
+
+  try {
+    const resp = await fetch(`/api/agents/${agentId}/versions?region=${getRegion()}`);
+    const data = await resp.json();
+    const versions = data.versions || [];
+
+    if (versions.length === 0) {
+      select.innerHTML = '<option value="">No versions found</option>';
+      updateStatus(false);
+      return;
+    }
+
+    select.innerHTML = versions.map(v => 
+      `<option value="${v.arn}">v${v.version}</option>`
+    ).join("");
+
+    selectedArn = versions[0].arn;
+    select.addEventListener("change", () => { selectedArn = select.value; updateStatus(true); });
+    updateStatus(true);
+  } catch (e) {
+    select.innerHTML = '<option value="">Error loading versions</option>';
+    updateStatus(false);
+  }
+}
+
+function updateStatus(ok) {
+  const el = document.getElementById("status");
+  if (ok) {
+    el.className = "status status-ok";
+    el.textContent = "✅ Agent selected and ready";
+  } else {
+    el.className = "status status-err";
+    el.textContent = "❌ Select an agent";
+  }
+}
+
+function addMessage(role, text) {
+  const container = document.getElementById("chatContainer");
+  const div = document.createElement("div");
+  div.className = `message message-${role}`;
+  
+  const avatar = document.createElement("div");
+  avatar.className = "message-avatar";
+  avatar.textContent = role === "user" ? "👤" : "🤖";
+  
+  const bubble = document.createElement("div");
+  bubble.className = "message-bubble";
+  bubble.innerHTML = formatResponse(text);
+  
+  div.appendChild(avatar);
+  div.appendChild(bubble);
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  
+  return bubble;
+}
+
+function addTypingIndicator() {
+  const container = document.getElementById("chatContainer");
+  const div = document.createElement("div");
+  div.className = "message message-assistant";
+  div.id = "typingIndicator";
+  
+  const avatar = document.createElement("div");
+  avatar.className = "message-avatar";
+  avatar.textContent = "🤖";
+  
+  const bubble = document.createElement("div");
+  bubble.className = "message-bubble";
+  bubble.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
+  
+  div.appendChild(avatar);
+  div.appendChild(bubble);
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function removeTypingIndicator() {
+  const el = document.getElementById("typingIndicator");
+  if (el) el.remove();
+}
+
+function formatResponse(text) {
+  if (!text) return "";
+  
+  const showTools = document.getElementById("showTools").checked;
+  const showThinking = document.getElementById("showThinking").checked;
+  
+  // Remove thinking blocks if not showing
+  if (!showThinking) {
+    text = text.replace(/<thinking>[\s\S]*?<\/thinking>/g, "");
+  }
+  
+  // Format tool usage
+  if (showTools) {
+    text = text.replace(/🔧\s*Using tool:\s*(.+)/g, '<div class="tool-usage">🔧 Using tool: <code>$1</code></div>');
+    text = text.replace(/↳\s*🔧\s*(.+?tool:\s*)(.+)/g, '<div class="tool-usage" style="margin-left:1rem;border-color:#2196F3;color:#2196F3;">↳ 🔧 $1<code>$2</code></div>');
+  } else {
+    text = text.replace(/🔧\s*Using tool:\s*.+\n?/g, "");
+    text = text.replace(/↳\s*🔧\s*.+\n?/g, "");
+  }
+  
+  // Format section headers (bold markdown)
+  text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  
+  // Basic markdown: code blocks
+  text = text.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre style="background:var(--bg);padding:0.75rem;border-radius:4px;overflow-x:auto;margin:0.5rem 0"><code>$2</code></pre>');
+  text = text.replace(/`([^`]+)`/g, '<code style="background:var(--bg);padding:0.15rem 0.4rem;border-radius:3px">$1</code>');
+  
+  // Lists
+  text = text.replace(/^\d+\.\s+/gm, match => `<br>${match}`);
+  text = text.replace(/^-\s+/gm, match => `<br>${match}`);
+  
+  return text;
+}
+
+async function sendMessage() {
+  const input = document.getElementById("messageInput");
+  const prompt = input.value.trim();
+  
+  if (!prompt) return;
+  if (!selectedArn) {
+    alert("Please select an agent first.");
+    return;
+  }
+  
+  input.value = "";
+  addMessage("user", prompt);
+  addTypingIndicator();
+  
+  try {
+    const resp = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt,
+        agentArn: selectedArn,
+        sessionId: document.getElementById("sessionId").value,
+        region: getRegion(),
+      }),
+    });
+    
+    removeTypingIndicator();
+    
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = "";
+    let bubble = addMessage("assistant", "");
+    
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split("\n");
+      
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.done) break;
+            if (data.error) {
+              fullText += `\n❌ Error: ${data.error}`;
+            } else if (data.text) {
+              fullText += data.text;
+            }
+            bubble.innerHTML = formatResponse(fullText);
+          } catch (e) {
+            // Skip malformed chunks
+          }
+        }
+      }
+      
+      document.getElementById("chatContainer").scrollTop = 
+        document.getElementById("chatContainer").scrollHeight;
+    }
+  } catch (e) {
+    removeTypingIndicator();
+    addMessage("assistant", `❌ Error: ${e.message}`);
+  }
+}
+</script>
+</body>
+</html>

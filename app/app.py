@@ -1,830 +1,236 @@
+"""
+Flask API backend for the AWS Network Firewall Automation Agent.
+Provides REST endpoints for chat, agent discovery, and session management.
+Integrates with Amazon Cognito for authentication via ALB headers.
+"""
+
 import json
-import re
-import time
+import logging
+import os
 import uuid
-from typing import Dict, Iterator, List
 
 import boto3
-import streamlit as st
 from botocore.config import Config
-from streamlit.logger import get_logger
+from flask import Flask, Response, jsonify, request, send_from_directory, stream_with_context
 
-logger = get_logger(__name__)
-logger.setLevel("INFO")
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Page config
-st.set_page_config(
-    page_title="AWS Network Firewall Automation Agent",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+app = Flask(__name__, static_folder="static", static_url_path="/static")
 
-# Remove Streamlit deployment components and add custom styling
-st.markdown(
+# Configuration
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+BOTO_CONFIG = Config(read_timeout=900, connect_timeout=60)
+
+
+# --- Authentication ---
+
+def get_current_user():
     """
-      <style>
-        .stAppDeployButton {display:none;}
-        #MainMenu {visibility: hidden;}
+    Extract user identity from ALB + Cognito auth headers.
+    In production, ALB injects these headers after Cognito authentication.
+    In local dev, returns a default user.
+    """
+    # ALB-injected headers when Cognito auth is enabled
+    user_claims = request.headers.get("x-amzn-oidc-data")
+    user_email = request.headers.get("x-amzn-oidc-identity")
 
-        /* Tool usage styling */
-        .tool-usage {
-          background: linear-gradient(90deg, rgba(76, 175, 80, 0.15) 0%, rgba(76, 175, 80, 0.05) 100%);
-          border-left: 4px solid #4CAF50;
-          padding: 12px 16px;
-          margin: 8px 0;
-          border-radius: 4px;
-          font-weight: 600;
-          color: #2E7D32;
-          display: block;
-        }
+    if user_email:
+        return {"email": user_email, "authenticated": True}
 
-        .tool-usage code {
-          background: rgba(76, 175, 80, 0.1);
-          padding: 2px 6px;
-          border-radius: 3px;
-          font-weight: 500;
-        }
+    # Local development fallback
+    if os.getenv("FLASK_ENV") == "development" or os.getenv("LOCAL_DEV") == "true":
+        return {"email": "local-dev@example.com", "authenticated": False}
 
-        /* Subagent tool usage styling */
-        .subagent-tool-usage {
-          background: linear-gradient(90deg, rgba(33, 150, 243, 0.15) 0%, rgba(33, 150, 243, 0.05) 100%);
-          border-left: 4px solid #2196F3;
-          padding: 12px 16px;
-          margin: 8px 0 8px 20px;
-          border-radius: 4px;
-          font-weight: 600;
-          color: #1565C0;
-          display: block;
-        }
-
-        .subagent-tool-usage code {
-          background: rgba(33, 150, 243, 0.1);
-          padding: 2px 6px;
-          border-radius: 3px;
-          font-weight: 500;
-        }
-
-        /* Section header styling */
-        .section-header {
-          background: linear-gradient(135deg, rgba(156, 39, 176, 0.12) 0%, rgba(156, 39, 176, 0.04) 100%);
-          border-left: 5px solid #9C27B0;
-          padding: 14px 18px;
-          margin: 20px 0 12px 0;
-          border-radius: 6px;
-          font-weight: 700;
-          font-size: 1.15em;
-          color: #6A1B9A;
-          display: block;
-          letter-spacing: 0.3px;
-        }
-
-        .section-header::before {
-          content: "📋 ";
-          margin-right: 8px;
-        }
-      </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-HUMAN_AVATAR = "static/user-profile.svg"
-AI_AVATAR = "static/gen-ai-dark.svg"
+    return None
 
 
-def fetch_agent_runtimes(region: str = "us-east-1") -> List[Dict]:
-    """Fetch available agent runtimes from bedrock-agentcore-control"""
+# --- API Routes ---
+
+@app.route("/")
+def index():
+    """Serve the main HTML page"""
+    return send_from_directory("static", "index.html")
+
+
+@app.route("/health")
+def health():
+    """Health check endpoint for ALB/ECS"""
+    return jsonify({"status": "healthy"}), 200
+
+
+@app.route("/api/user", methods=["GET"])
+def get_user():
+    """Return current authenticated user info"""
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+    return jsonify(user)
+
+
+@app.route("/api/agents", methods=["GET"])
+def list_agents():
+    """Fetch available agent runtimes from Bedrock AgentCore"""
+    region = request.args.get("region", AWS_REGION)
     try:
-        config = Config(read_timeout=300, connect_timeout=60)
-        client = boto3.client(
-            "bedrock-agentcore-control", region_name=region, config=config
-        )
+        client = boto3.client("bedrock-agentcore-control", region_name=region, config=BOTO_CONFIG)
         response = client.list_agent_runtimes(maxResults=100)
 
-        # Filter only READY agents and sort by name
         ready_agents = [
-            agent
+            {
+                "name": agent.get("agentRuntimeName", "Unknown"),
+                "id": agent.get("agentRuntimeId", ""),
+                "status": agent.get("status", ""),
+                "lastUpdatedAt": agent.get("lastUpdatedAt", "").isoformat()
+                if hasattr(agent.get("lastUpdatedAt", ""), "isoformat")
+                else str(agent.get("lastUpdatedAt", "")),
+            }
             for agent in response.get("agentRuntimes", [])
             if agent.get("status") == "READY"
         ]
 
-        # Sort by most recent update time (newest first)
         ready_agents.sort(key=lambda x: x.get("lastUpdatedAt", ""), reverse=True)
+        return jsonify({"agents": ready_agents})
 
-        return ready_agents
     except Exception as e:
-        st.error(f"Error fetching agent runtimes: {e}")
-        return []
+        logger.error(f"Error fetching agents: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
-def fetch_agent_runtime_versions(
-    agent_runtime_id: str, region: str = "us-east-1"
-) -> List[Dict]:
+@app.route("/api/agents/<agent_runtime_id>/versions", methods=["GET"])
+def list_agent_versions(agent_runtime_id):
     """Fetch versions for a specific agent runtime"""
+    region = request.args.get("region", AWS_REGION)
     try:
-        config = Config(read_timeout=300, connect_timeout=60)
-        client = boto3.client(
-            "bedrock-agentcore-control", region_name=region, config=config
-        )
+        client = boto3.client("bedrock-agentcore-control", region_name=region, config=BOTO_CONFIG)
         response = client.list_agent_runtime_versions(
-            agentRuntimeId=agent_runtime_id,
-            maxResults=100,  # Increased from default 10 to fetch more versions
+            agentRuntimeId=agent_runtime_id, maxResults=100
         )
 
-        # Filter only READY versions
         ready_versions = [
-            version
-            for version in response.get("agentRuntimes", [])
-            if version.get("status") == "READY"
+            {
+                "version": v.get("agentRuntimeVersion", ""),
+                "arn": v.get("agentRuntimeArn", ""),
+                "description": v.get("description", ""),
+                "lastUpdatedAt": v.get("lastUpdatedAt", "").isoformat()
+                if hasattr(v.get("lastUpdatedAt", ""), "isoformat")
+                else str(v.get("lastUpdatedAt", "")),
+            }
+            for v in response.get("agentRuntimes", [])
+            if v.get("status") == "READY"
         ]
 
-        # Sort by most recent update time (newest first)
         ready_versions.sort(key=lambda x: x.get("lastUpdatedAt", ""), reverse=True)
+        return jsonify({"versions": ready_versions})
 
-        return ready_versions
     except Exception as e:
-        st.error(f"Error fetching agent runtime versions: {e}")
-        return []
+        logger.error(f"Error fetching versions: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
-def format_section_headers(text: str) -> str:
-    """Format section headers with styled HTML containers"""
-    if not text:
-        return text
-
-    # Pattern to match section headers - capitalize words followed by optional colon
-    # Common patterns: "Summary", "Key Findings:", "Connection Details"
-    # Match at start of line or after double newline
-    patterns = [
-        # Pattern 1: Markdown bold headers like **Summary** or **Connection Details**
-        (
-            r"\n\*\*([A-Z][A-Za-z\s]{2,50})\*\*:?\s*\n",
-            r'\n<div class="section-header">\1</div>\n\n',
-        ),
-        # Pattern 2: Regular headers at start of line
-        (
-            r"\n([A-Z][A-Z\s]{2,50}):\s*\n",
-            r'\n<div class="section-header">\1</div>\n\n',
-        ),
-        # Pattern 3: Title case headers (e.g., "Connection Details")
-        (
-            r"\n([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+):\s*\n",
-            r'\n<div class="section-header">\1</div>\n\n',
-        ),
-    ]
-
-    for pattern, replacement in patterns:
-        text = re.sub(pattern, replacement, text)
-
-    return text
+@app.route("/api/sessions", methods=["POST"])
+def create_session():
+    """Generate a new session ID"""
+    return jsonify({"sessionId": str(uuid.uuid4())})
 
 
-def format_tool_usage(text: str) -> str:
-    """Format tool usage messages with styled HTML containers"""
-    if not text:
-        return text
+@app.route("/api/chat", methods=["POST"])
+def chat():
+    """
+    Send a message to the agent and stream the response.
+    Returns Server-Sent Events (SSE) for real-time streaming.
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Request body required"}), 400
 
-    # Pattern to match subagent tool usage (e.g., "↳ 🔧 Firewall Logs tool: search_firewall_logs")
-    # Process this first as it's more specific
-    subagent_pattern = r"([\s\t\-\*]*)(↳\s*🔧\s*)([^\:]+\s+tool:\s*)([^\n]+)"
+    prompt = data.get("prompt", "").strip()
+    agent_arn = data.get("agentArn", "")
+    session_id = data.get("sessionId", str(uuid.uuid4()))
+    region = data.get("region", AWS_REGION)
 
-    def replace_subagent_tool(match):
-        indent = match.group(1)
-        arrow_and_wrench = match.group(2)
-        agent_and_tool_label = match.group(3).strip()
-        tool_name = match.group(4).strip()
+    if not prompt:
+        return jsonify({"error": "prompt is required"}), 400
+    if not agent_arn:
+        return jsonify({"error": "agentArn is required"}), 400
 
-        # Remove markdown bold markers from the label and tool name
-        agent_and_tool_label = agent_and_tool_label.replace("**", "")
-        tool_name = tool_name.replace("**", "")
+    def generate():
+        try:
+            client = boto3.client("bedrock-agentcore", region_name=region, config=BOTO_CONFIG)
 
-        return f'{indent}<div class="subagent-tool-usage">{arrow_and_wrench}{agent_and_tool_label}<code>{tool_name}</code></div>'
-
-    text = re.sub(subagent_pattern, replace_subagent_tool, text)
-
-    # Pattern to match main agent tool usage (e.g., "🔧 Using tool: tool_name")
-    # Also match lines with indentation or bullets before the wrench emoji
-    main_pattern = r"([\s\t\-\*]*)(🔧\s*Using tool:\s*)([^\n]+)"
-
-    def replace_main_tool(match):
-        indent = match.group(1)
-        prefix = match.group(2)
-        tool_name = match.group(3).strip()
-
-        # Remove markdown bold markers
-        tool_name = tool_name.replace("**", "")
-
-        return f'{indent}<div class="tool-usage">{prefix}<code>{tool_name}</code></div>'
-
-    text = re.sub(main_pattern, replace_main_tool, text)
-    return text
-
-
-def clean_response_text(text: str, show_thinking: bool = True) -> str:
-    """Clean and format response text for better presentation"""
-    if not text:
-        return text
-
-    # Handle the consecutive quoted chunks pattern
-    # Pattern: "word1" "word2" "word3" -> word1 word2 word3
-    text = re.sub(r'"\s*"', "", text)
-    text = re.sub(r'^"', "", text)
-    text = re.sub(r'"$', "", text)
-
-    # Replace literal \n with actual newlines
-    text = text.replace("\\n", "\n")
-
-    # Replace literal \t with actual tabs
-    text = text.replace("\\t", "\t")
-
-    # Clean up multiple spaces
-    text = re.sub(r" {3,}", " ", text)
-
-    # Fix newlines that got converted to spaces
-    text = text.replace(" \n ", "\n")
-    text = text.replace("\n ", "\n")
-    text = text.replace(" \n", "\n")
-
-    # Handle numbered lists
-    text = re.sub(r"\n(\d+)\.\s+", r"\n\1. ", text)
-    text = re.sub(r"^(\d+)\.\s+", r"\1. ", text)
-
-    # Handle bullet points
-    text = re.sub(r"\n-\s+", r"\n- ", text)
-    text = re.sub(r"^-\s+", r"- ", text)
-
-    # Clean up multiple newlines (before formatting to avoid interference)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-
-    # Clean up thinking
-    if not show_thinking:
-        text = re.sub(r"<thinking>.*?</thinking>", "", text)
-
-    # Format section headers with styling (do this before tool usage to avoid conflicts)
-    text = format_section_headers(text)
-
-    # Format tool usage messages with styling
-    text = format_tool_usage(text)
-
-    return text.strip()
-
-
-def extract_text_from_response(data) -> str:
-    """Extract text content from response data in various formats"""
-    if isinstance(data, dict):
-        # Handle format: {'role': 'assistant', 'content': [{'text': 'Hello!'}]}
-        if "role" in data and "content" in data:
-            content = data["content"]
-            if isinstance(content, list) and len(content) > 0:
-                if isinstance(content[0], dict) and "text" in content[0]:
-                    return str(content[0]["text"])
-                else:
-                    return str(content[0])
-            elif isinstance(content, str):
-                return content
-            else:
-                return str(content)
-
-        # Handle other common formats
-        if "text" in data:
-            return str(data["text"])
-        elif "content" in data:
-            content = data["content"]
-            if isinstance(content, str):
-                return content
-            else:
-                return str(content)
-        elif "message" in data:
-            return str(data["message"])
-        elif "response" in data:
-            return str(data["response"])
-        elif "result" in data:
-            return str(data["result"])
-
-    return str(data)
-
-
-def parse_streaming_chunk(chunk: str) -> str:
-    """Parse individual streaming chunk and extract meaningful content"""
-    logger.debug(f"parse_streaming_chunk: received chunk: {chunk}")
-    logger.debug(f"parse_streaming_chunk: chunk type: {type(chunk)}")
-
-    try:
-        # Try to parse as JSON first
-        if chunk.strip().startswith("{"):
-            logger.debug("parse_streaming_chunk: Attempting JSON parse")
-            data = json.loads(chunk)
-            logger.debug(f"parse_streaming_chunk: Successfully parsed JSON: {data}")
-
-            # Handle the specific format: {'role': 'assistant', 'content': [{'text': '...'}]}
-            if isinstance(data, dict) and "role" in data and "content" in data:
-                content = data["content"]
-                if isinstance(content, list) and len(content) > 0:
-                    first_item = content[0]
-                    if isinstance(first_item, dict) and "text" in first_item:
-                        extracted_text = first_item["text"]
-                        logger.debug(
-                            f"parse_streaming_chunk: Extracted text: {extracted_text}"
-                        )
-                        return extracted_text
-                    else:
-                        return str(first_item)
-                else:
-                    return str(content)
-            else:
-                # Use the general extraction function for other formats
-                return extract_text_from_response(data)
-
-        # If not JSON, return the chunk as-is
-        logger.debug("parse_streaming_chunk: Not JSON, returning as-is")
-        return chunk
-    except json.JSONDecodeError as e:
-        logger.error(f"parse_streaming_chunk: JSON decode error: {e}")
-
-        # Try to handle Python dict string representation (with single quotes)
-        if chunk.strip().startswith("{") and "'" in chunk:
-            logger.debug(
-                "parse_streaming_chunk: Attempting to handle Python dict string"
+            boto3_response = client.invoke_agent_runtime(
+                agentRuntimeArn=agent_arn,
+                qualifier="DEFAULT",
+                runtimeSessionId=session_id,
+                payload=json.dumps({"prompt": prompt}),
             )
-            try:
-                # Try to convert single quotes to double quotes for JSON parsing
-                # This is a simple approach - might need refinement for complex cases
-                json_chunk = chunk.replace("'", '"')
-                data = json.loads(json_chunk)
-                logger.debug(
-                    f"parse_streaming_chunk: Successfully converted and parsed: {data}"
-                )
 
-                # Handle the specific format
-                if isinstance(data, dict) and "role" in data and "content" in data:
+            content_type = boto3_response.get("contentType", "")
+
+            if "text/event-stream" in content_type:
+                for line in boto3_response["response"].iter_lines(chunk_size=1):
+                    if line:
+                        line = line.decode("utf-8")
+                        if line.startswith("data: "):
+                            chunk_data = line[6:]
+                            parsed = _parse_chunk(chunk_data)
+                            if parsed.strip():
+                                yield f"data: {json.dumps({'text': parsed})}\n\n"
+            else:
+                # Non-streaming response
+                response_obj = boto3_response.get("response")
+                if hasattr(response_obj, "read"):
+                    content = response_obj.read()
+                    if isinstance(content, bytes):
+                        content = content.decode("utf-8")
+                    parsed = _parse_chunk(content)
+                    yield f"data: {json.dumps({'text': parsed})}\n\n"
+
+            yield f"data: {json.dumps({'done': True})}\n\n"
+
+        except Exception as e:
+            logger.error(f"Error in chat stream: {e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+def _parse_chunk(chunk: str) -> str:
+    """Parse a response chunk and extract text content"""
+    try:
+        if chunk.strip().startswith("{"):
+            data = json.loads(chunk)
+            if isinstance(data, dict):
+                if "role" in data and "content" in data:
                     content = data["content"]
                     if isinstance(content, list) and len(content) > 0:
                         first_item = content[0]
                         if isinstance(first_item, dict) and "text" in first_item:
-                            extracted_text = first_item["text"]
-                            logger.debug(
-                                f"parse_streaming_chunk: Extracted text from converted dict: {extracted_text}"
-                            )
-                            return extracted_text
-                        else:
-                            return str(first_item)
-                    else:
-                        return str(content)
-                else:
-                    return extract_text_from_response(data)
-            except json.JSONDecodeError:
-                logger.debug(
-                    "parse_streaming_chunk: Failed to convert Python dict string"
-                )
-                pass
-
-        # If all parsing fails, return the chunk as-is
-        logger.debug("parse_streaming_chunk: All parsing failed, returning chunk as-is")
-        return chunk
-
-
-def invoke_agent_streaming(
-    prompt: str,
-    agent_arn: str,
-    runtime_session_id: str,
-    region: str = "us-east-1",
-    show_tool: bool = True,
-) -> Iterator[str]:
-    """Invoke agent and yield streaming response chunks"""
-    try:
-        # Configure boto3 with longer timeouts for agent operations
-        # AWS Bedrock agents can take longer when using tools
-        config = Config(
-            read_timeout=900,  # 15 minutes for complex agent operations
-            connect_timeout=60,  # 1 minute to establish connection
-        )
-        agentcore_client = boto3.client(
-            "bedrock-agentcore", region_name=region, config=config
-        )
-
-        boto3_response = agentcore_client.invoke_agent_runtime(
-            agentRuntimeArn=agent_arn,
-            qualifier="DEFAULT",
-            runtimeSessionId=runtime_session_id,
-            payload=json.dumps({"prompt": prompt}),
-        )
-
-        logger.debug(f"contentType: {boto3_response.get('contentType', 'NOT_FOUND')}")
-
-        if "text/event-stream" in boto3_response.get("contentType", ""):
-            logger.debug("Using streaming response path")
-            # Handle streaming response
-            for line in boto3_response["response"].iter_lines(chunk_size=1):
-                if line:
-                    line = line.decode("utf-8")
-                    logger.debug(f"Raw line: {line}")
-                    if line.startswith("data: "):
-                        line = line[6:]
-                        logger.debug(f"Line after removing 'data: ': {line}")
-                        # Parse and clean each chunk
-                        parsed_chunk = parse_streaming_chunk(line)
-                        if parsed_chunk.strip():  # Only yield non-empty chunks
-                            if "🔧 Using tool:" in parsed_chunk and not show_tool:
-                                yield ""
-                            else:
-                                yield parsed_chunk
-                    else:
-                        logger.debug(
-                            f"Line doesn't start with 'data: ', skipping: {line}"
-                        )
-        else:
-            logger.debug("Using non-streaming response path")
-            # Handle non-streaming JSON response
-            try:
-                response_obj = boto3_response.get("response")
-                logger.debug(f"response_obj type: {type(response_obj)}")
-
-                if hasattr(response_obj, "read"):
-                    # Read the response content
-                    content = response_obj.read()
-                    if isinstance(content, bytes):
-                        content = content.decode("utf-8")
-
-                    logger.debug(f"Raw content: {content}")
-
-                    try:
-                        # Try to parse as JSON and extract text
-                        response_data = json.loads(content)
-                        logger.debug(f"Parsed JSON: {response_data}")
-
-                        # Handle the specific format we're seeing
-                        if isinstance(response_data, dict):
-                            # Check for 'result' wrapper first
-                            if "result" in response_data:
-                                actual_data = response_data["result"]
-                            else:
-                                actual_data = response_data
-
-                            # Extract text from the nested structure
-                            if "role" in actual_data and "content" in actual_data:
-                                content_list = actual_data["content"]
-                                if (
-                                    isinstance(content_list, list)
-                                    and len(content_list) > 0
-                                ):
-                                    first_item = content_list[0]
-                                    if (
-                                        isinstance(first_item, dict)
-                                        and "text" in first_item
-                                    ):
-                                        extracted_text = first_item["text"]
-                                        logger.debug(
-                                            f"Extracted text: {extracted_text}"
-                                        )
-                                        yield extracted_text
-                                    else:
-                                        yield str(first_item)
-                                else:
-                                    yield str(content_list)
-                            else:
-                                # Use general extraction
-                                text = extract_text_from_response(actual_data)
-                                yield text
-                        else:
-                            yield str(response_data)
-
-                    except json.JSONDecodeError as e:
-                        logger.error(f"JSON decode error: {e}")
-                        # If not JSON, yield raw content
-                        yield content
-                elif isinstance(response_obj, dict):
-                    # Direct dict response
-                    text = extract_text_from_response(response_obj)
-                    yield text
-                else:
-                    logger.debug(f"Unexpected response_obj type: {type(response_obj)}")
-                    yield "No response content"
-
-            except Exception as e:
-                logger.error(f"Exception in non-streaming: {e}")
-                yield f"Error reading response: {e}"
-
-    except Exception as e:
-        yield f"Error invoking agent: {e}"
-
-
-def main():
-    st.logo("static/logo-placeholder.svg", size="large")
-    st.title("AWS Network Firewall Automation Agent")
-
-    # Sidebar for settings
-    with st.sidebar:
-        st.header("Settings")
-
-        # Region selection (moved up since it affects agent fetching)
-        region = st.selectbox(
-            "AWS Region",
-            ["us-east-1", "us-west-2", "eu-west-1", "ap-southeast-1", "ap-southeast-2"],
-            index=0,
-        )
-
-        # Agent selection
-        st.subheader("Agent Selection")
-
-        # Fetch available agents
-        with st.spinner("Loading available agents..."):
-            available_agents = fetch_agent_runtimes(region)
-
-        if available_agents:
-            # Get unique agent names and their runtime IDs
-            unique_agents = {}
-            for agent in available_agents:
-                name = agent.get("agentRuntimeName", "Unknown")
-                runtime_id = agent.get("agentRuntimeId", "")
-                if name not in unique_agents:
-                    unique_agents[name] = runtime_id
-
-            # Create agent name options
-            agent_names = list(unique_agents.keys())
-
-            # Initialize session state for selected agent if not exists
-            if "selected_agent_name" not in st.session_state:
-                st.session_state.selected_agent_name = (
-                    agent_names[0] if agent_names else None
-                )
-
-            # Agent name selection dropdown
-            col1, col2 = st.columns([2, 1])
-
-            with col1:
-                # Find the index of the currently selected agent
-                try:
-                    current_index = (
-                        agent_names.index(st.session_state.selected_agent_name)
-                        if st.session_state.selected_agent_name in agent_names
-                        else 0
-                    )
-                except (ValueError, AttributeError):
-                    current_index = 0
-
-                selected_agent_name = st.selectbox(
-                    "Agent Name",
-                    options=agent_names,
-                    index=current_index,
-                    help="Choose an agent to chat with",
-                    key="agent_name_select",
-                )
-
-                # Update session state if selection changed
-                if selected_agent_name != st.session_state.selected_agent_name:
-                    st.session_state.selected_agent_name = selected_agent_name
-                    # Reset version when agent changes
-                    if "selected_version" in st.session_state:
-                        del st.session_state.selected_version
-
-            # Get versions for the selected agent using the specific API
-            if selected_agent_name and selected_agent_name in unique_agents:
-                agent_runtime_id = unique_agents[selected_agent_name]
-
-                with st.spinner("Loading versions..."):
-                    agent_versions = fetch_agent_runtime_versions(
-                        agent_runtime_id, region
-                    )
-
-                if agent_versions:
-                    version_options = []
-                    version_arn_map = {}
-
-                    for version in agent_versions:
-                        version_num = version.get("agentRuntimeVersion", "Unknown")
-                        arn = version.get("agentRuntimeArn", "")
-                        updated = version.get("lastUpdatedAt", "")
-                        description = version.get("description", "")
-
-                        # Format version display with update time
-                        version_display = f"v{version_num}"
-                        if updated:
-                            try:
-                                if hasattr(updated, "strftime"):
-                                    updated_str = updated.strftime("%m/%d %H:%M")
-                                    version_display += f" ({updated_str})"
-                            except:
-                                pass
-
-                        version_options.append(version_display)
-                        version_arn_map[version_display] = {
-                            "arn": arn,
-                            "description": description,
-                        }
-
-                    # Initialize session state for selected version if not exists
-                    if "selected_version" not in st.session_state:
-                        st.session_state.selected_version = (
-                            version_options[0] if version_options else None
-                        )
-
-                    with col2:
-                        # Find the index of the currently selected version
-                        try:
-                            version_index = (
-                                version_options.index(st.session_state.selected_version)
-                                if st.session_state.selected_version in version_options
-                                else 0
-                            )
-                        except (ValueError, AttributeError):
-                            version_index = 0
-
-                        selected_version = st.selectbox(
-                            "Version",
-                            options=version_options,
-                            index=version_index,
-                            help="Choose the version to use",
-                            key="version_select",
-                        )
-
-                        # Update session state if selection changed
-                        if selected_version != st.session_state.selected_version:
-                            st.session_state.selected_version = selected_version
-
-                    # Get the ARN for the selected agent and version
-                    version_info = version_arn_map.get(selected_version, {})
-                    agent_arn = version_info.get("arn", "")
-                    description = version_info.get("description", "")
-
-                    # Show selected agent info
-                    if agent_arn:
-                        st.info(f"Selected: {selected_agent_name} {selected_version}")
-                        if description:
-                            st.caption(f"Description: {description}")
-                        with st.expander("View ARN"):
-                            st.code(agent_arn)
-                else:
-                    st.warning(f"No versions found for {selected_agent_name}")
-                    agent_arn = ""
-            else:
-                agent_arn = ""
-        else:
-            st.error("No agent runtimes found or error loading agents")
-            agent_arn = ""
-
-            # Fallback manual input
-            st.subheader("Manual ARN Input")
-            agent_arn = st.text_input(
-                "Agent ARN", value="", help="Enter your Bedrock AgentCore ARN manually"
-            )
-        if st.button("Refresh", key="refresh_agents", help="Refresh agent list"):
-            # Clear agent selection state to allow fresh selection
-            if "selected_agent_name" in st.session_state:
-                del st.session_state.selected_agent_name
-            if "selected_version" in st.session_state:
-                del st.session_state.selected_version
-            st.rerun()
-
-        # Runtime Session ID
-        st.subheader("Session Configuration")
-
-        # Initialize session ID in session state if not exists
-        if "runtime_session_id" not in st.session_state:
-            st.session_state.runtime_session_id = str(uuid.uuid4())
-
-        # Session ID input with generate button
-        runtime_session_id = st.text_input(
-            "Runtime Session ID",
-            value=st.session_state.runtime_session_id,
-            help="Unique identifier for this runtime session",
-        )
-
-        if st.button("Refresh", help="Generate new session ID and clear chat"):
-            st.session_state.runtime_session_id = str(uuid.uuid4())
-            st.session_state.messages = []  # Clear chat messages when resetting session
-            st.rerun()
-
-        # Update session state if user manually changed the ID
-        if runtime_session_id != st.session_state.runtime_session_id:
-            st.session_state.runtime_session_id = runtime_session_id
-
-        # Response formatting options
-        st.subheader("Display Options")
-        auto_format = st.checkbox(
-            "Auto-format responses",
-            value=True,
-            help="Automatically clean and format responses",
-        )
-        show_raw = st.checkbox(
-            "Show raw response",
-            value=False,
-            help="Display the raw unprocessed response",
-        )
-        show_tools = st.checkbox(
-            "Show tools",
-            value=True,
-            help="Display tools used",
-        )
-        show_thinking = st.checkbox(
-            "Show thinking",
-            value=False,
-            help="Display the AI thinking text",
-        )
-
-        # Clear chat button
-        if st.button("🗑️ Clear Chat"):
-            st.session_state.messages = []
-            st.rerun()
-
-        # Connection status
-        st.divider()
-        if agent_arn:
-            st.success("✅ Agent selected and ready")
-        else:
-            st.error("❌ Please select an agent")
-
-    # Initialize chat history
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-
-    # Display chat messages
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"], avatar=message["avatar"]):
-            st.markdown(message["content"], unsafe_allow_html=True)
-
-    # Chat input
-    if prompt := st.chat_input("Type your message here..."):
-        if not agent_arn:
-            st.error("Please select an agent in the sidebar first.")
-            return
-
-        # Add user message to chat history
-        st.session_state.messages.append(
-            {"role": "user", "content": prompt, "avatar": HUMAN_AVATAR}
-        )
-        with st.chat_message("user", avatar=HUMAN_AVATAR):
-            st.markdown(prompt)
-
-        # Generate assistant response
-        with st.chat_message("assistant", avatar=AI_AVATAR):
-            message_placeholder = st.empty()
-            chunk_buffer = ""
-
-            try:
-                # Stream the response
-                for chunk in invoke_agent_streaming(
-                    prompt,
-                    agent_arn,
-                    st.session_state.runtime_session_id,
-                    region,
-                    show_tools,
-                ):
-                    # Let's see what we get
-                    logger.debug(f"MAIN LOOP: chunk type: {type(chunk)}")
-                    logger.debug(f"MAIN LOOP: chunk content: {chunk}")
-
-                    # Ensure chunk is a string before concatenating
-                    if not isinstance(chunk, str):
-                        logger.debug("MAIN LOOP: Converting non-string chunk to string")
-                        chunk = str(chunk)
-
-                    # Add chunk to buffer
-                    chunk_buffer += chunk
-
-                    # Only update display every few chunks or when we hit certain characters
-                    if (
-                        len(chunk_buffer) % 3 == 0
-                        or chunk.endswith(" ")
-                        or chunk.endswith("\n")
-                    ):
-                        if auto_format:
-                            # Clean the accumulated response
-                            cleaned_response = clean_response_text(
-                                chunk_buffer, show_thinking
-                            )
-                            message_placeholder.markdown(
-                                cleaned_response + " ▌", unsafe_allow_html=True
-                            )
-                        else:
-                            # Show raw response
-                            message_placeholder.markdown(
-                                chunk_buffer + " ▌", unsafe_allow_html=True
-                            )
-
-                    time.sleep(0.01)  # Reduced delay since we're batching updates
-
-                # Final response without cursor
-                if auto_format:
-                    full_response = clean_response_text(chunk_buffer, show_thinking)
-                else:
-                    full_response = chunk_buffer
-
-                message_placeholder.markdown(full_response, unsafe_allow_html=True)
-
-                # Show raw response in expander if requested
-                if show_raw and auto_format:
-                    with st.expander("View raw response"):
-                        st.text(chunk_buffer)
-
-            except Exception as e:
-                error_msg = f"❌ **Error:** {str(e)}"
-                message_placeholder.markdown(error_msg, unsafe_allow_html=True)
-                full_response = error_msg
-
-        # Add assistant response to chat history
-        st.session_state.messages.append(
-            {"role": "assistant", "content": full_response, "avatar": AI_AVATAR}
-        )
+                            return first_item["text"]
+                        return str(first_item)
+                    return str(content)
+                if "text" in data:
+                    return str(data["text"])
+                if "result" in data:
+                    result = data["result"]
+                    if isinstance(result, dict):
+                        return _parse_chunk(json.dumps(result))
+                    return str(result)
+            return str(data)
+    except json.JSONDecodeError:
+        pass
+    return chunk
 
 
 if __name__ == "__main__":
-    main()
+    port = int(os.getenv("PORT", "8501"))
+    debug = os.getenv("FLASK_ENV") == "development" or os.getenv("LOCAL_DEV") == "true"
+    app.run(host="0.0.0.0", port=port, debug=debug)

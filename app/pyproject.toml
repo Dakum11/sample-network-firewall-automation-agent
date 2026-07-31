@@ -6,5 +6,6 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "boto3>=1.40.53",
-    "streamlit>=1.50.0",
+    "flask>=3.0.0",
+    "gunicorn>=22.0.0",
 ]

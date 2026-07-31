@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml uv.lock ./
 
 # Sync dependencies using uv (creates .venv and installs from lock file)
-RUN --mount=type=secret,id=uv.toml,dst=/root/.config/uv/uv.toml uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev
 
 # Copy static assets
 COPY static/ ./static/
@@ -20,18 +20,11 @@ COPY static/ ./static/
 # Copy application code
 COPY app.py .
 
-# Expose the port Streamlit will run on
+# Expose the application port
 EXPOSE 8501
 
-# Set Streamlit configuration
-ENV STREAMLIT_SERVER_PORT=8501
-ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0
-ENV STREAMLIT_SERVER_HEADLESS=true
-ENV STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
-
 # Health check
-HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health || exit 1
+HEALTHCHECK CMD curl --fail http://localhost:8501/health || exit 1
 
-# Run the Streamlit app using uv run (automatically uses the .venv)
-CMD ["uv", "run", "streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
-
+# Run with gunicorn for production (multi-worker, production-grade)
+CMD ["uv", "run", "gunicorn", "app:app", "--bind", "0.0.0.0:8501", "--workers", "4", "--timeout", "900", "--worker-class", "gthread", "--threads", "2"]
