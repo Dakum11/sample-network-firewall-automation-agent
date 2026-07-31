@@ -27,7 +27,7 @@ Guide to setting up identity integration including:
 
 1. Review **identity-setup.ipynb** to understand identity concepts
 2. Understand existing Azure AD setup (FWAUTO-7 - already completed)
-3. Design how user context flows from Streamlit → ALB → Cognito → AgentCore
+3. Design how user context flows from Web App → ALB → Cognito → AgentCore
 4. Implement user scoping for memory and access control
 
 ## Key Considerations
@@ -41,7 +41,7 @@ Guide to setting up identity integration including:
 ## Integration Points
 
 - **ALB**: Authenticates users via Cognito (Azure AD federation)
-- **Streamlit**: Receives user info from ALB headers
+- **Web App**: Receives user info from ALB headers
 - **AgentCore**: Receives user context for personalization
 - **Memory**: Scoped to user sessions
 

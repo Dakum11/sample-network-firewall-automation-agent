@@ -228,7 +228,7 @@ aws cloudformation deploy \
 ```bash
 cd app
 uv sync
-uv run streamlit run app.py
+uv run app.py
 ```
 
 The application will be available at `http://localhost:8501`.

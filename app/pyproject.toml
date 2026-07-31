@@ -1,7 +1,7 @@
 [project]
 name = "aws-network-firewall-automation-app"
 version = "1.0.0"
-description = "Streamlit web interface for the AWS Network Firewall Automation Agent."
+description = "Web interface for the AWS Network Firewall Automation Agent."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
