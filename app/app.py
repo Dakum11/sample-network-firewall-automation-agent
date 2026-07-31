@@ -206,8 +206,11 @@ def chat():
 def _parse_chunk(chunk: str) -> str:
     """Parse a response chunk and extract text content"""
     try:
-        if chunk.strip().startswith("{"):
+        if chunk.strip().startswith("{") or chunk.strip().startswith('"'):
             data = json.loads(chunk)
+            # If the parsed result is just a string, return it directly
+            if isinstance(data, str):
+                return data
             if isinstance(data, dict):
                 if "role" in data and "content" in data:
                     content = data["content"]

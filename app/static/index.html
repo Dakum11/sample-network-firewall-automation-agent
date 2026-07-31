@@ -497,6 +497,17 @@ function formatResponse(text) {
   const showTools = document.getElementById("showTools").checked;
   const showThinking = document.getElementById("showThinking").checked;
   
+  // Clean up streaming artifacts: consecutive quoted chunks
+  text = text.replace(/""\s*"/g, "");
+  text = text.replace(/^"/, "");
+  text = text.replace(/"$/, "");
+  
+  // Replace literal \n with actual newlines
+  text = text.replace(/\\n/g, "\n");
+  
+  // Replace literal \t with tabs
+  text = text.replace(/\\t/g, "\t");
+  
   // Remove thinking blocks if not showing
   if (!showThinking) {
     text = text.replace(/<thinking>[\s\S]*?<\/thinking>/g, "");
@@ -511,16 +522,22 @@ function formatResponse(text) {
     text = text.replace(/↳\s*🔧\s*.+\n?/g, "");
   }
   
-  // Format section headers (bold markdown)
+  // Format markdown headers (## Header)
+  text = text.replace(/^###\s+(.+)$/gm, '<h4 style="color:var(--blue);margin:0.75rem 0 0.25rem">$1</h4>');
+  text = text.replace(/^##\s+(.+)$/gm, '<h3 style="color:var(--blue);margin:0.75rem 0 0.25rem">$1</h3>');
+  
+  // Format bold markdown
   text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   
   // Basic markdown: code blocks
   text = text.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre style="background:var(--bg);padding:0.75rem;border-radius:4px;overflow-x:auto;margin:0.5rem 0"><code>$2</code></pre>');
   text = text.replace(/`([^`]+)`/g, '<code style="background:var(--bg);padding:0.15rem 0.4rem;border-radius:3px">$1</code>');
   
-  // Lists
-  text = text.replace(/^\d+\.\s+/gm, match => `<br>${match}`);
-  text = text.replace(/^-\s+/gm, match => `<br>${match}`);
+  // Convert newlines to <br> (after all other processing)
+  text = text.replace(/\n/g, "<br>");
+  
+  // Clean up excessive <br> tags
+  text = text.replace(/(<br>){3,}/g, "<br><br>");
   
   return text;
 }
