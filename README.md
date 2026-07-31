@@ -28,7 +28,7 @@ This Guidance demonstrates how to build and deploy a multi-agent system that aut
 - Provides multi-agent specialization so each domain (account context, log analysis, IPAM, Git, ITSM) is handled by a purpose-built agent
 - Preserves approval gates — automation handles everything *except* the human approval step, keeping change control intact
 
-![Architecture Diagram](docs/screenshot-1.png)
+![Architecture Diagram](docs/architecture-diagram.png)
 
 ### Architecture Flow
 
