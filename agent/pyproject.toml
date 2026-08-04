@@ -1,0 +1,8 @@
+[project]
+name = "firewall-agent-deploy"
+version = "1.0.0"
+description = "Deployment tooling for the AWS Network Firewall Automation Agent"
+requires-python = ">=3.11"
+dependencies = [
+    "boto3>=1.35.0",
+]

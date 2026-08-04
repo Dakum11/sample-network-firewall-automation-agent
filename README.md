@@ -182,19 +182,60 @@ cd ../..
 
 ### Step 5: Deploy the AgentCore runtime
 
+The deployment script builds the container image, pushes it to ECR, and creates/updates your Bedrock AgentCore runtime. Configuration is loaded automatically from your `.env` file (created in Step 2).
+
+**Prerequisites for this step:**
+- IAM execution role created (see [IAM Role Setup](#iam-role-setup) below)
+- VPC with private subnets and a NAT gateway
+- Security group allowing outbound HTTPS (port 443)
+
+#### Option A: First-time deployment (create a new runtime)
+
+```bash
+cd agent
+./deploy.sh --create
+cd ..
+```
+
+The script will:
+1. Build and push the Docker image to ECR
+2. Call `CreateAgentRuntime` to provision a new runtime
+3. Wait for the runtime to reach `READY` status
+4. Print the **Runtime ID** — save this in your `.env` file as `AGENT_RUNTIME_ID`
+
+#### Option B: Update an existing runtime
+
+After your first deployment, set `AGENT_RUNTIME_ID` in `.env` with the ID from Option A, then:
+
+```bash
+cd agent
+./deploy.sh
+cd ..
+```
+
+This updates the existing runtime with the new container image.
+
+#### Option C: Run deploy.py directly (without the shell wrapper)
+
 ```bash
 cd agent
 
-# Option A: Use the deploy shell script (edit variables at top of file first)
-./deploy.sh
-
-# Option B: Run deploy.py directly with arguments
-python deploy.py \
+# Create a new runtime
+uv run deploy.py --create \
   --region us-east-1 \
   --account-id <ACCOUNT_ID> \
   --ecr-repository <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/firewall-automation-agent \
   --version 1.0.0 \
-  --agent-runtime-id <RUNTIME_ID> \
+  --subnets <SUBNET_1>,<SUBNET_2> \
+  --security-groups <SG_ID> \
+  --role-name FirewallAutomation-AgentCore-Execution-Role
+
+# Or update an existing runtime
+uv run deploy.py --agent-runtime-id <RUNTIME_ID> \
+  --region us-east-1 \
+  --account-id <ACCOUNT_ID> \
+  --ecr-repository <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/firewall-automation-agent \
+  --version 1.0.1 \
   --subnets <SUBNET_1>,<SUBNET_2> \
   --security-groups <SG_ID> \
   --role-name FirewallAutomation-AgentCore-Execution-Role
@@ -202,7 +243,77 @@ python deploy.py \
 cd ..
 ```
 
-This updates the Bedrock AgentCore runtime with the new container image and VPC configuration. Requires `AZURE_DEVOPS_ORG`, `AZURE_DEVOPS_PROJECT`, and `REPO_NAME` environment variables to be set.
+#### IAM Role Setup
+
+Before deploying, create an IAM execution role for the agent. The role needs these permissions:
+
+```bash
+# Create the IAM role with Bedrock AgentCore trust policy
+aws iam create-role \
+  --role-name FirewallAutomation-AgentCore-Execution-Role \
+  --assume-role-policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [{
+      "Effect": "Allow",
+      "Principal": {"Service": "bedrock-agentcore.amazonaws.com"},
+      "Action": "sts:AssumeRole"
+    }]
+  }'
+
+# Attach permissions (customize to your environment)
+aws iam put-role-policy \
+  --role-name FirewallAutomation-AgentCore-Execution-Role \
+  --policy-name AgentPermissions \
+  --policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": [
+          "bedrock:InvokeModel",
+          "bedrock:InvokeModelWithResponseStream"
+        ],
+        "Resource": "arn:aws:bedrock:*::foundation-model/*"
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage",
+          "ecr:GetAuthorizationToken"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ],
+        "Resource": "arn:aws:logs:*:*:*"
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "secretsmanager:GetSecretValue"
+        ],
+        "Resource": "arn:aws:secretsmanager:*:*:secret:firewall-automation/*"
+      },
+      {
+        "Effect": "Allow",
+        "Action": [
+          "dynamodb:GetItem",
+          "dynamodb:Query",
+          "dynamodb:Scan"
+        ],
+        "Resource": "arn:aws:dynamodb:*:*:table/account-metadata"
+      }
+    ]
+  }'
+```
+
+> **Note:** The optional environment variables (`AZURE_DEVOPS_ORG`, `AZURE_DEVOPS_PROJECT`, `REPO_NAME`, etc.) are passed to the runtime automatically if set in your `.env`. If you haven't configured the GitOps integration yet, the agent will still function — it logs a warning and disables those tools gracefully.
 
 ### Step 6: Deploy the web application (CloudFormation)
 
