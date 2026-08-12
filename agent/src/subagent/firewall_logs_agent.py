@@ -5,6 +5,7 @@ Following Strands SDK best practices with enhanced error handling and documentat
 
 import json
 import logging
+import os
 import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
@@ -422,7 +423,7 @@ def search_firewall_logs(
         ) from e
 
 
-model_id = "apac.anthropic.claude-sonnet-4-20250514-v1:0"
+model_id = os.getenv('BEDROCK_MODEL_ID', 'us.anthropic.claude-sonnet-4-20250514-v1:0')
 model = BedrockModel(
     model_id=model_id,
 )

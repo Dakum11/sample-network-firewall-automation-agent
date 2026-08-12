@@ -283,7 +283,7 @@ def initialize_agent(actor_id, session_id):
 
     logger.info(f"Initializing agent for actor_id={actor_id}, session_id={session_id}")
 
-    model_id = os.getenv('BEDROCK_MODEL_ID', 'anthropic.claude-sonnet-4-20250514-v1:0')
+    model_id = os.getenv('BEDROCK_MODEL_ID', 'us.anthropic.claude-sonnet-4-20250514-v1:0')
     memory_id = os.getenv('AGENTCORE_MEMORY_ID')
 
     # Create model and memory hook

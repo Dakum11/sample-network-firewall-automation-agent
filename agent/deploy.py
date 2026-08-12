@@ -17,10 +17,23 @@ Usage:
 
 import argparse
 import os
+import re
 import sys
 import time
 
 import boto3
+
+
+def validate_runtime_name(name):
+    """Validate that the runtime name meets AgentCore naming constraints."""
+    if not re.match(r'^[a-zA-Z0-9_]+$', name):
+        print(f"ERROR: Runtime name '{name}' is invalid.")
+        print("  Runtime names must contain only alphanumeric characters and underscores.")
+        print("  Hyphens (-) are NOT allowed.")
+        if '-' in name:
+            suggestion = name.replace('-', '_')
+            print(f"  Suggestion: use '{suggestion}' instead.")
+        sys.exit(1)
 
 
 def parse_args():
@@ -41,8 +54,9 @@ def parse_args():
     mode_group.add_argument("--agent-runtime-id", help="Existing AgentCore runtime ID to update")
 
     # Optional
-    parser.add_argument("--runtime-name", default="firewall-automation-agent",
-                        help="Name for the new runtime (only used with --create, default: firewall-automation-agent)")
+    parser.add_argument("--runtime-name", default="firewall_automation_agent",
+                        help="Name for the new runtime (only used with --create, default: firewall_automation_agent). "
+                             "Must contain only alphanumeric characters and underscores (no hyphens).")
 
     return parser.parse_args()
 
@@ -189,6 +203,10 @@ def wait_for_ready(client, runtime_id, timeout=300, interval=10):
 
 def main():
     args = parse_args()
+
+    # Validate runtime name if creating
+    if args.create:
+        validate_runtime_name(args.runtime_name)
 
     client = boto3.client("bedrock-agentcore-control", region_name=args.region)
 

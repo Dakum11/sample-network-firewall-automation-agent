@@ -3,6 +3,7 @@ ServiceNow MCP agent with integrated tools
 """
 
 import logging
+import os
 import requests
 import base64
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
@@ -162,7 +163,7 @@ def list_catalog_categories_tool(limit: int = 10):
     """List service catalog categories"""
     return servicenow_list_catalog_categories(limit)
 
-model_id = "apac.anthropic.claude-sonnet-4-20250514-v1:0"
+model_id = os.getenv('BEDROCK_MODEL_ID', 'us.anthropic.claude-sonnet-4-20250514-v1:0')
 model = BedrockModel(model_id=model_id)
 
 agent = Agent(

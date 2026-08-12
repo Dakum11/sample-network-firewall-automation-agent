@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -e
 
@@ -11,22 +11,32 @@ set -e
 #
 # Configuration is loaded from ../.env (project root). Copy .env.example to .env
 # and fill in your values before running.
+#
+# Compatible with bash 3.2+ (macOS default) and all POSIX shells.
 # =============================================================================
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # -----------------------------------------------------------------------------
-# Load .env file from project root
+# Load .env file from project root (POSIX-compatible, no process substitution)
 # -----------------------------------------------------------------------------
 ENV_FILE="$PROJECT_ROOT/.env"
 if [ -f "$ENV_FILE" ]; then
     echo "Loading configuration from $ENV_FILE"
     # Export variables from .env (skip comments and blank lines)
-    set -a
-    # shellcheck disable=SC1090
-    source <(grep -v '^\s*#' "$ENV_FILE" | grep -v '^\s*$')
-    set +a
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Skip comments and blank lines
+        case "$line" in
+            \#*|"") continue ;;
+        esac
+        # Skip lines that are only whitespace
+        if echo "$line" | grep -q '^\s*$'; then
+            continue
+        fi
+        # Export the variable
+        export "$line"
+    done < "$ENV_FILE"
 else
     echo "WARNING: No .env file found at $ENV_FILE"
     echo "Copy .env.example to .env and configure your values."
@@ -40,6 +50,7 @@ AWS_REGION="${AWS_REGION:-us-east-1}"
 AWS_ACCOUNT_ID="${AWS_ACCOUNT_ID:-}"
 ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-firewall-automation-agent}"
 AGENT_RUNTIME_ID="${AGENT_RUNTIME_ID:-}"
+AGENT_RUNTIME_NAME="${AGENT_RUNTIME_NAME:-firewall_automation_agent}"
 AGENT_SUBNETS="${AGENT_SUBNETS:-}"
 AGENT_SECURITY_GROUPS="${AGENT_SECURITY_GROUPS:-}"
 AGENT_EXECUTION_ROLE_NAME="${AGENT_EXECUTION_ROLE_NAME:-FirewallAutomation-AgentCore-Execution-Role}"
@@ -124,8 +135,8 @@ DEPLOY_ARGS=(
 )
 
 if [ "$CREATE_MODE" = true ]; then
-    DEPLOY_ARGS+=(--create)
-    echo "Mode: CREATE (new runtime)"
+    DEPLOY_ARGS+=(--create --runtime-name "$AGENT_RUNTIME_NAME")
+    echo "Mode: CREATE (new runtime: $AGENT_RUNTIME_NAME)"
 else
     DEPLOY_ARGS+=(--agent-runtime-id "$AGENT_RUNTIME_ID")
     echo "Mode: UPDATE (runtime: $AGENT_RUNTIME_ID)"

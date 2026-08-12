@@ -7,6 +7,8 @@
 2. [Prerequisites](#prerequisites)
     - [Operating System](#operating-system)
     - [AWS account requirements](#aws-account-requirements)
+    - [IAM Role Setup](#iam-role-setup)
+    - [Web Application Prerequisites (Optional)](#web-application-prerequisites-optional)
     - [Service quotas](#service-quotas)
     - [Supported Regions](#supported-regions)
 3. [Deployment Steps](#deployment-steps)
@@ -105,9 +107,144 @@ sudo apt-get update && sudo apt-get install docker.io
 - AWS account with permissions to create IAM roles, ECR repositories, ECS services, and Bedrock AgentCore resources
 - Amazon Bedrock model access enabled for Claude Sonnet 4 (`us.anthropic.claude-sonnet-4-20250514-v1:0`)
 - A VPC with private subnets and NAT gateway for AgentCore networking
+- Security group allowing outbound HTTPS (port 443) for AgentCore runtime
+- **IAM execution role** for Bedrock AgentCore (see [IAM Role Setup](#iam-role-setup) below)
 - (Optional) Azure DevOps organization with a repository containing firewall rules
 - (Optional) Enterprise IPAM system (EfficientIP SOLIDserver) credentials stored in AWS Secrets Manager
 - (Optional) OpenSearch domain or serverless collection for firewall log queries
+- (Optional, for web application) A registered domain name with a Route 53 hosted zone (see [Web Application Prerequisites](#web-application-prerequisites-optional))
+
+### IAM Role Setup
+
+Create the IAM execution role for AgentCore **before** running the deployment scripts. The agent runtime needs this role to pull container images, invoke Bedrock models, and write logs.
+
+```bash
+# Create the IAM role with Bedrock AgentCore trust policy
+aws iam create-role \
+  --role-name FirewallAutomation-AgentCore-Execution-Role \
+  --assume-role-policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [{
+      "Effect": "Allow",
+      "Principal": {"Service": "bedrock-agentcore.amazonaws.com"},
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "StringEquals": {"aws:SourceAccount": "<ACCOUNT_ID>"},
+        "ArnLike": {"aws:SourceArn": "arn:aws:bedrock-agentcore:<REGION>:<ACCOUNT_ID>:*"}
+      }
+    }]
+  }'
+
+# Attach permissions (replace <ACCOUNT_ID> and <REGION> with your values)
+aws iam put-role-policy \
+  --role-name FirewallAutomation-AgentCore-Execution-Role \
+  --policy-name AgentPermissions \
+  --policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "BedrockModelInvocation",
+        "Effect": "Allow",
+        "Action": [
+          "bedrock:InvokeModel",
+          "bedrock:InvokeModelWithResponseStream"
+        ],
+        "Resource": [
+          "arn:aws:bedrock:*::foundation-model/anthropic.*",
+          "arn:aws:bedrock:<REGION>:<ACCOUNT_ID>:inference-profile/us.anthropic.*"
+        ]
+      },
+      {
+        "Sid": "ECRImageAccess",
+        "Effect": "Allow",
+        "Action": [
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage"
+        ],
+        "Resource": "arn:aws:ecr:<REGION>:<ACCOUNT_ID>:repository/firewall-automation-agent"
+      },
+      {
+        "Sid": "ECRTokenAccess",
+        "Effect": "Allow",
+        "Action": "ecr:GetAuthorizationToken",
+        "Resource": "*"
+      },
+      {
+        "Sid": "CloudWatchLogs",
+        "Effect": "Allow",
+        "Action": [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "logs:DescribeLogStreams",
+          "logs:DescribeLogGroups"
+        ],
+        "Resource": "arn:aws:logs:<REGION>:<ACCOUNT_ID>:log-group:/aws/bedrock-agentcore/runtimes/*"
+      },
+      {
+        "Sid": "SecretsManagerAccess",
+        "Effect": "Allow",
+        "Action": "secretsmanager:GetSecretValue",
+        "Resource": "arn:aws:secretsmanager:<REGION>:<ACCOUNT_ID>:secret:firewall-automation/*"
+      },
+      {
+        "Sid": "DynamoDBAccess",
+        "Effect": "Allow",
+        "Action": [
+          "dynamodb:GetItem",
+          "dynamodb:Query",
+          "dynamodb:Scan"
+        ],
+        "Resource": "arn:aws:dynamodb:<REGION>:<ACCOUNT_ID>:table/account-metadata"
+      },
+      {
+        "Sid": "AgentCoreWorkloadIdentity",
+        "Effect": "Allow",
+        "Action": [
+          "bedrock-agentcore:GetWorkloadAccessToken",
+          "bedrock-agentcore:GetWorkloadAccessTokenForJWT",
+          "bedrock-agentcore:GetWorkloadAccessTokenForUserId"
+        ],
+        "Resource": [
+          "arn:aws:bedrock-agentcore:<REGION>:<ACCOUNT_ID>:workload-identity-directory/default",
+          "arn:aws:bedrock-agentcore:<REGION>:<ACCOUNT_ID>:workload-identity-directory/default/workload-identity/agentName-*"
+        ]
+      },
+      {
+        "Sid": "Observability",
+        "Effect": "Allow",
+        "Action": [
+          "xray:PutTraceSegments",
+          "xray:PutTelemetryRecords",
+          "xray:GetSamplingRules",
+          "xray:GetSamplingTargets"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Sid": "CloudWatchMetrics",
+        "Effect": "Allow",
+        "Action": "cloudwatch:PutMetricData",
+        "Resource": "*",
+        "Condition": {
+          "StringEquals": {"cloudwatch:namespace": "bedrock-agentcore"}
+        }
+      }
+    ]
+  }'
+```
+
+> **Note:** Only `ecr:GetAuthorizationToken`, X-Ray, and CloudWatch Metrics require `Resource: "*"` — this is mandated by AWS. All other permissions are scoped to specific resource ARNs.
+
+### Web Application Prerequisites (Optional)
+
+If you plan to deploy the web application (Step 6), you'll need:
+
+- **Domain name**: A registered domain name (e.g., `firewall-agent.example.com`)
+- **Route 53 hosted zone**: A hosted zone ID for your domain to create DNS records and validate SSL certificates
+- **Azure AD application**: A registered Azure AD application for Cognito SSO federation (tenant ID, client ID, client secret)
+
+These are only required for the production web UI deployment. You can skip this and use local development mode (Step 7) instead.
 
 ### Service quotas
 
@@ -185,7 +322,7 @@ cd ../..
 The deployment script builds the container image, pushes it to ECR, and creates/updates your Bedrock AgentCore runtime. Configuration is loaded automatically from your `.env` file (created in Step 2).
 
 **Prerequisites for this step:**
-- IAM execution role created (see [IAM Role Setup](#iam-role-setup) below)
+- IAM execution role created (see [IAM Role Setup](#iam-role-setup) in Prerequisites above)
 - VPC with private subnets and a NAT gateway
 - Security group allowing outbound HTTPS (port 443)
 
@@ -228,7 +365,8 @@ uv run deploy.py --create \
   --version 1.0.0 \
   --subnets <SUBNET_1>,<SUBNET_2> \
   --security-groups <SG_ID> \
-  --role-name FirewallAutomation-AgentCore-Execution-Role
+  --role-name FirewallAutomation-AgentCore-Execution-Role \
+  --runtime-name firewall_automation_agent
 
 # Or update an existing runtime
 uv run deploy.py --agent-runtime-id <RUNTIME_ID> \
@@ -243,79 +381,11 @@ uv run deploy.py --agent-runtime-id <RUNTIME_ID> \
 cd ..
 ```
 
-#### IAM Role Setup
-
-Before deploying, create an IAM execution role for the agent. The role needs these permissions:
-
-```bash
-# Create the IAM role with Bedrock AgentCore trust policy
-aws iam create-role \
-  --role-name FirewallAutomation-AgentCore-Execution-Role \
-  --assume-role-policy-document '{
-    "Version": "2012-10-17",
-    "Statement": [{
-      "Effect": "Allow",
-      "Principal": {"Service": "bedrock-agentcore.amazonaws.com"},
-      "Action": "sts:AssumeRole"
-    }]
-  }'
-
-# Attach permissions (customize to your environment)
-aws iam put-role-policy \
-  --role-name FirewallAutomation-AgentCore-Execution-Role \
-  --policy-name AgentPermissions \
-  --policy-document '{
-    "Version": "2012-10-17",
-    "Statement": [
-      {
-        "Effect": "Allow",
-        "Action": [
-          "bedrock:InvokeModel",
-          "bedrock:InvokeModelWithResponseStream"
-        ],
-        "Resource": "arn:aws:bedrock:*::foundation-model/*"
-      },
-      {
-        "Effect": "Allow",
-        "Action": [
-          "ecr:GetDownloadUrlForLayer",
-          "ecr:BatchGetImage",
-          "ecr:GetAuthorizationToken"
-        ],
-        "Resource": "*"
-      },
-      {
-        "Effect": "Allow",
-        "Action": [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents"
-        ],
-        "Resource": "arn:aws:logs:*:*:*"
-      },
-      {
-        "Effect": "Allow",
-        "Action": [
-          "secretsmanager:GetSecretValue"
-        ],
-        "Resource": "arn:aws:secretsmanager:*:*:secret:firewall-automation/*"
-      },
-      {
-        "Effect": "Allow",
-        "Action": [
-          "dynamodb:GetItem",
-          "dynamodb:Query",
-          "dynamodb:Scan"
-        ],
-        "Resource": "arn:aws:dynamodb:*:*:table/account-metadata"
-      }
-    ]
-  }'
-```
-
-> **Note:** The optional environment variables (`AZURE_DEVOPS_ORG`, `AZURE_DEVOPS_PROJECT`, `REPO_NAME`, etc.) are passed to the runtime automatically if set in your `.env`. If you haven't configured the GitOps integration yet, the agent will still function — it logs a warning and disables those tools gracefully.
+> **Note:** The IAM execution role must be created before this step. See [IAM Role Setup](#iam-role-setup) in Prerequisites. The optional environment variables (`AZURE_DEVOPS_ORG`, `AZURE_DEVOPS_PROJECT`, `REPO_NAME`, etc.) are passed to the runtime automatically if set in your `.env`. If you haven't configured the GitOps integration yet, the agent will still function — it logs a warning and disables those tools gracefully.
 
 ### Step 6: Deploy the web application (CloudFormation)
+
+> **Prerequisites:** This step requires a registered domain name and a Route 53 hosted zone. See [Web Application Prerequisites](#web-application-prerequisites-optional). If you don't have these, skip to Step 7 for local development.
 
 ```bash
 aws cloudformation deploy \
