@@ -21,6 +21,11 @@ from subagent.gitops_tools import (
     create_pull_request,
     format_pr_description,
 )
+from subagent.servicenow_agent import (
+    create_change,
+    get_change_details,
+    list_changes,
+)
 from utils.account_details_utils import (
     DYNAMODB_ACCOUNT_METADATA_TABLE_NAME,
     DYNAMODB_DEPLOYMENT_STATE_TABLE_SUFFIX,
@@ -322,6 +327,9 @@ def initialize_agent(actor_id, session_id):
             create_pull_request,
             validate_ip_addresses,
             nslookup,
+            create_change,
+            list_changes,
+            get_change_details,
             editor,
             file_read,
             file_write,
@@ -336,7 +344,9 @@ Your tools:
 5. commit_and_push - Commit and push changes
 6. format_pr_description - Format PR description with all required fields
 7. create_pull_request - Create pull request
-8. editor, file_read, file_write - File operations
+8. create_change - Create a ServiceNow change request (use for change/ticket requests)
+9. list_changes / get_change_details - Query ServiceNow change requests
+10. editor, file_read, file_write - File operations
 
 CRITICAL WORKFLOW for creating/modifying firewall rules:
 1. Understand requirements - Extract all IPs, CIDRs, ports, protocols
