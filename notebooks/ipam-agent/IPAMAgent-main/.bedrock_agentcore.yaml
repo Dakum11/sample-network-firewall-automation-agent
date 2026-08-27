@@ -2,10 +2,10 @@ default_agent: ipam_agent
 agents:
   ipam_agent:
     name: ipam_agent
-    entrypoint: /home/sakhan/IST-AWS-Firewall-Automation/notebooks/ipam-agent/IPAMAgent-main/ipam_agent.py
+    entrypoint: /home/your-username/IST-AWS-Firewall-Automation/notebooks/ipam-agent/IPAMAgent-main/ipam_agent.py
     platform: linux/arm64
     container_runtime: none
-    source_path: /home/sakhan/IST-AWS-Firewall-Automation/notebooks/ipam-agent/IPAMAgent-main
+    source_path: /home/your-username/IST-AWS-Firewall-Automation/notebooks/ipam-agent/IPAMAgent-main
     aws:
       execution_role: arn:aws:iam::YOUR_ACCOUNT_ID:role/FW-Automation-AgentCore-Execution-Role
       execution_role_auto_create: false
@@ -17,10 +17,10 @@ agents:
         network_mode: VPC
         network_mode_config:
           security_groups:
-          - sg-0302b0e114f205955
+          - sg-EXAMPLE
           subnets:
-          - subnet-0346050dd733b71b9
-          - subnet-0ee37898a908e35b6
+          - subnet-EXAMPLE1
+          - subnet-EXAMPLE2
       protocol_configuration:
         server_protocol: HTTP
       observability:

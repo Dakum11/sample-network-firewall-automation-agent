@@ -41,7 +41,7 @@ PAT_TOKEN = response["password"]
 VERBOSE = os.getenv("VERBOSE", "true").lower() == "true"
 
 # Load configuration from environment variables
-REPO_URL = os.getenv("REPO_URL", f"https://{PAT_TOKEN}@pace-devops.visualstudio.com/IaC-AWS-Firewall-Automation/_git/IaC-AWS-Firewall-Automation")
+REPO_URL = os.getenv("REPO_URL", f"https://{PAT_TOKEN}@your-org.visualstudio.com/IaC-AWS-Firewall-Automation/_git/IaC-AWS-Firewall-Automation")
 
 SYSTEM_PROMPT = f"""
 You are a ADO automation agent. Your task is to follow these steps to create a firewall change:
