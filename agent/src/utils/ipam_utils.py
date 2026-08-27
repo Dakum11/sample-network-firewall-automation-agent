@@ -9,6 +9,19 @@ import boto3
 import requests
 
 
+def _ipam_tls_verify():
+    """
+    TLS verification setting for IPAM requests. Secure by default.
+      - IPAM_CA_BUNDLE: path to a CA bundle (e.g. an internal CA) -> used for verification.
+      - IPAM_VERIFY_TLS=false: explicit opt-out (NOT recommended; only for isolated labs).
+      - default: True (verify against the system CA bundle).
+    """
+    ca_bundle = os.getenv("IPAM_CA_BUNDLE")
+    if ca_bundle:
+        return ca_bundle
+    return os.getenv("IPAM_VERIFY_TLS", "true").lower() != "false"
+
+
 def get_secret(secret_name: str) -> str:
     client = boto3.client("secretsmanager", region_name=os.getenv('AWS_REGION', 'us-east-1'))
     response = client.get_secret_value(SecretId=secret_name)
@@ -120,11 +133,11 @@ def check_cidr_range(cidr_range: str) -> dict:
         "WHERE": f"start_hostaddr='{start_ip_addr}' and end_hostaddr='{end_ip_addr}'"
     }
 
-    response = requests.get(url, headers=headers, params=params, verify=False)
+    response = requests.get(url, headers=headers, params=params, verify=_ipam_tls_verify())
 
     if response.ok:
-        if response.text:
-            data = response.json()
+        data = response.json() if response.text else []
+        if data:
             return {
                 "status": "success",
                 "exists": True,
@@ -153,10 +166,10 @@ def check_ip_addresses(ip_address: str = None) -> dict:
     params = {}
     if ip_address:
         params["WHERE"] = f"hostaddr='{ip_address}'"
-    response = requests.get(url, headers=headers, params=params, verify=False)
+    response = requests.get(url, headers=headers, params=params, verify=_ipam_tls_verify())
     if response.ok:
-        if response.text:
-            data = response.json()
+        data = response.json() if response.text else []
+        if data:
             return {
                 "status": "success",
                 "exists": True,

@@ -127,7 +127,7 @@ def get_servicenow_credentials():
     secrets_client = boto3.client('secretsmanager')
 
     response = secrets_client.get_secret_value(
-        SecretId='firewall-chatbot/servicenow/credentials'
+        SecretId='firewall-automation/servicenow/credentials'
     )
 
     secret = json.loads(response['SecretString'])

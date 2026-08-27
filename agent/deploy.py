@@ -131,7 +131,7 @@ def create_runtime(client, args):
     print(f"{'='*60}")
 
     # Wait for runtime to become READY
-    wait_for_ready(client, runtime_id)
+    wait_for_ready(client, runtime_id, args.region)
 
     return runtime_id
 
@@ -172,12 +172,12 @@ def update_runtime(client, args):
     print(f"  Status: {response['status']}")
 
     # Wait for runtime to become READY
-    wait_for_ready(client, args.agent_runtime_id)
+    wait_for_ready(client, args.agent_runtime_id, args.region)
 
     return args.agent_runtime_id
 
 
-def wait_for_ready(client, runtime_id, timeout=300, interval=10):
+def wait_for_ready(client, runtime_id, region, timeout=300, interval=10):
     """Poll the runtime status until it reaches READY or times out."""
     print(f"\nWaiting for runtime to become READY (timeout: {timeout}s)...")
     elapsed = 0
@@ -198,7 +198,7 @@ def wait_for_ready(client, runtime_id, timeout=300, interval=10):
             elapsed += interval
 
     print(f"  WARNING: Timed out after {timeout}s. Current status: {status}")
-    print(f"  Check manually: aws bedrock-agentcore-control get-agent-runtime --agent-runtime-id {runtime_id} --region {args.region}")
+    print(f"  Check manually: aws bedrock-agentcore-control get-agent-runtime --agent-runtime-id {runtime_id} --region {region}")
 
 
 def main():

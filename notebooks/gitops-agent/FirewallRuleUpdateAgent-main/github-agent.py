@@ -42,7 +42,7 @@ PAT_TOKEN = os.getenv("PAT_TOKEN", "")
 #GITHUB_API_URL = os.getenv("GITHUB_API_URL", "")
 VERBOSE = os.getenv("VERBOSE", "false").lower() == "true"
 
-response = get_secret("firewall-chatbot/azure-devops/pat")
+response = get_secret("firewall-automation/azure-devops/pat")
 print(response)
 
 SYSTEM_PROMPT = f"""You are a ADO automation agent. Your task is to:
