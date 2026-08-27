@@ -383,6 +383,40 @@ cd ..
 
 > **Note:** The IAM execution role must be created before this step. See [IAM Role Setup](#iam-role-setup) in Prerequisites. The optional environment variables (`AZURE_DEVOPS_ORG`, `AZURE_DEVOPS_PROJECT`, `REPO_NAME`, etc.) are passed to the runtime automatically if set in your `.env`. If you haven't configured the GitOps integration yet, the agent will still function — it logs a warning and disables those tools gracefully.
 
+### Step 5.5: Build and push the web application image
+
+> **Important:** The web application (`app/`) is a **separate container image** from the agent runtime (`agent/`). The agent image runs the Bedrock AgentCore agent (entrypoint `python -m agent`); the web app image runs the Flask UI with gunicorn on port **8501**. Step 6 deploys the **web app image**, not the agent image — do not reuse `firewall-automation-agent` for the ECS service.
+
+```bash
+# Create a dedicated ECR repository for the web app
+aws ecr create-repository \
+  --repository-name firewall-automation-app \
+  --region us-east-1
+
+# Build the web app image
+cd app
+
+# NOTE: build for the CPU architecture your Fargate task uses.
+# The app-template.yaml task definition sets RuntimePlatform.CpuArchitecture.
+# On Apple Silicon / Graviton, build arm64; on Intel, build amd64.
+docker build --platform linux/arm64 -t firewall-automation-app:latest .   # arm64 (Graviton/Apple Silicon)
+# docker build --platform linux/amd64 -t firewall-automation-app:latest .  # amd64 (Intel)
+
+# Authenticate with ECR
+aws ecr get-login-password --region us-east-1 | \
+  docker login --username AWS --password-stdin <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com
+
+# Tag and push
+docker tag firewall-automation-app:latest \
+  <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/firewall-automation-app:latest
+docker push \
+  <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/firewall-automation-app:latest
+
+cd ..
+```
+
+> **Architecture must match:** the image architecture (`--platform`) must match `RuntimePlatform.CpuArchitecture` in `infra/cloudformation/app-template.yaml`. A mismatch causes the container to fail at startup with `exec format error` and the ECS task never becomes healthy.
+
 ### Step 6: Deploy the web application (CloudFormation)
 
 > **Prerequisites:** This step requires a registered domain name and a Route 53 hosted zone. See [Web Application Prerequisites](#web-application-prerequisites-optional). If you don't have these, skip to Step 7 for local development.
@@ -395,7 +429,7 @@ aws cloudformation deploy \
     ProjectName=firewall-automation \
     VpcId=<YOUR_VPC_ID> \
     SubnetIds=<SUBNET_1>,<SUBNET_2> \
-    ContainerImage=<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/firewall-automation-agent:latest \
+    ContainerImage=<ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/firewall-automation-app:latest \
     WebConsoleRootDomainName=<YOUR_DOMAIN> \
     HostedZoneId=<YOUR_HOSTED_ZONE_ID> \
     AzureADTenantId=<YOUR_TENANT_ID> \
