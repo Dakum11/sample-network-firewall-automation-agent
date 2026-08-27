@@ -47,8 +47,8 @@ if status == "READY":
         networkConfiguration={
             "networkMode": "VPC",
             "networkModeConfig": {
-                "subnets": ["subnet-0346050dd733b71b9", "subnet-0ee37898a908e35b6"],
-                "securityGroups": ["sg-0302b0e114f205955"],
+                "subnets": ["subnet-EXAMPLE1", "subnet-EXAMPLE2"],
+                "securityGroups": ["sg-EXAMPLE"],
             },
         },
         agentRuntimeArtifact={

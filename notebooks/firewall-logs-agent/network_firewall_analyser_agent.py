@@ -290,9 +290,9 @@ def initialize_opensearch(endpoint, region, role_arn):
     global opensearch_client
 
     # Hardcoded values since they never change
-    # endpoint = "https://vxoxfikba1rth5rwfmvc.ap-southeast-2.aoss.amazonaws.com"
+    # endpoint = "https://YOUR_COLLECTION_ID.us-east-1.aoss.amazonaws.com"
     # region = "ap-southeast-2"
-    # role_arn = "arn:aws:iam::307987194911:role/XAccount-OpenSearch-Firewall-Logs-Role"
+    # role_arn = "arn:aws:iam::123456789012:role/XAccount-OpenSearch-Firewall-Logs-Role"
 
     try:
         opensearch_client = OpenSearchClient(endpoint, region, role_arn)

@@ -22,9 +22,15 @@ from strands.models import BedrockModel
 logger = logging.getLogger(__name__)
 
 app = BedrockAgentCoreApp()
-endpoint = "https://vxoxfikba1rth5rwfmvc.ap-southeast-2.aoss.amazonaws.com"
-region = "ap-southeast-2"
-role_arn = "arn:aws:iam::307987194911:role/XAccount-OpenSearch-Firewall-Logs-Role"
+# OpenSearch configuration is read from environment variables so no environment-specific
+# values are baked into the image. Set these on the AgentCore runtime:
+#   OPENSEARCH_ENDPOINT   e.g. https://<collection-id>.<region>.aoss.amazonaws.com
+#   AWS_REGION            e.g. us-east-1
+#   OPENSEARCH_ROLE_ARN   (optional) cross-account role to assume for OpenSearch access;
+#                         leave unset to use the runtime's own execution role.
+endpoint = os.getenv("OPENSEARCH_ENDPOINT", "")
+region = os.getenv("AWS_REGION", "us-east-1")
+role_arn = os.getenv("OPENSEARCH_ROLE_ARN") or None
 
 # Global OpenSearch client - initialized after class definition
 opensearch_client = None

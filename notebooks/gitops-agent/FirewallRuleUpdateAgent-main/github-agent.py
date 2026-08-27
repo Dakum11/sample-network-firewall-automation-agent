@@ -30,7 +30,7 @@ os.environ["BYPASS_TOOL_CONSENT"] = "true"
 os.environ["EDITOR_DISABLE_BACKUP"] = "true"
 
 # Load configuration from environment variables
-REPO_URL = os.getenv("REPO_URL", "https://pace-devops.visualstudio.com/_git/IaC-AWS-Firewall-Automation")
+REPO_URL = os.getenv("REPO_URL", "https://your-org.visualstudio.com/_git/IaC-AWS-Firewall-Automation")
 
 # TODO Secrets manager
 def get_secret(secret_name: str) -> str:
