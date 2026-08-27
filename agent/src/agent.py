@@ -404,7 +404,7 @@ async def strands_agent_bedrock(payload, context):
         error_msg = "❌ ERROR: Missing 'prompt' field in payload"
         logger.error(error_msg)
         yield error_msg
-
+        return  # Stop here — otherwise execution falls through to agent.stream_async(None) and crashes.
     # Initialize agent on first request
     if agent is None:
         logger.info("First request - initializing agent")

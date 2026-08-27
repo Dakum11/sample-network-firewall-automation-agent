@@ -1,3 +1,4 @@
+import os
 import json
 import boto3
 import ipaddress
@@ -85,7 +86,7 @@ def check_cidr_range(cidr_range: str) -> dict:
     }
 
 
-    response = requests.get(url, headers=HEADERS, params=params, verify=False)
+    response = requests.get(url, headers=HEADERS, params=params, verify=os.getenv("IPAM_VERIFY_TLS","true").lower()!="false")
     
     if response.ok:
         if response.text:
@@ -106,7 +107,7 @@ def check_ip_addresses(ip_address: str = None) -> dict:
     params = {}
     if ip_address:
         params["WHERE"] = f"hostaddr='{ip_address}'"
-    response = requests.get(url, headers=HEADERS, params=params, verify=False)
+    response = requests.get(url, headers=HEADERS, params=params, verify=os.getenv("IPAM_VERIFY_TLS","true").lower()!="false")
     if response.ok:
         if response.text:
             data = response.json()

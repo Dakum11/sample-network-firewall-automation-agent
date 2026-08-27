@@ -44,7 +44,10 @@ def get_secret(secret_name: str) -> str:
 
 
 def get_repo_url() -> tuple[str, str]:
-    response = json.loads(get_secret("firewall-chatbot/azure-devops/pat"))
+    # Secret name is configurable; default matches the documented value in
+    # .env.example and the README IAM policy (firewall-automation/*).
+    secret_name = os.getenv("AZURE_DEVOPS_SECRET_NAME", "firewall-automation/azure-devops/pat")
+    response = json.loads(get_secret(secret_name))
     username = response["username"]
     pat_token = response["password"]
 

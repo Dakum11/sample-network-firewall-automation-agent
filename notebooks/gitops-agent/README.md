@@ -151,7 +151,7 @@ Co-Authored-By: Firewall Automation Chatbot <noreply@example.com>
 
 ## Security Considerations
 
-- **Store Azure DevOps PAT** in AWS Secrets Manager (`firewall-chatbot/azure-devops/pat`)
+- **Store Azure DevOps PAT** in AWS Secrets Manager (`firewall-automation/azure-devops/pat`)
 - **Limit PAT scope**: Code (read/write), Pull Requests (read/write) only
 - **No admin permissions**: No delete, force push, or admin access
 - **Automatic rotation**: 90-day expiration with alerts

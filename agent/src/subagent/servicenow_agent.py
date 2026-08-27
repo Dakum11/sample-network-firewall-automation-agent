@@ -14,14 +14,33 @@ logger = logging.getLogger(__name__)
 
 app = BedrockAgentCoreApp()
 
-# ServiceNow configuration
-SERVICENOW_INSTANCE = "https://REPLACEME.service-now.com"
-SERVICENOW_USERNAME = "admin"
-SERVICENOW_PASSWORD = "REDACTED"
+# ServiceNow configuration — sourced from environment / Secrets Manager, never hardcoded.
+#   SERVICENOW_INSTANCE  e.g. https://<instance>.service-now.com
+#   SERVICENOW_SECRET_NAME  (optional) Secrets Manager secret holding {"username","password"};
+#                           defaults to servicenow/credentials. Falls back to
+#                           SERVICENOW_USERNAME / SERVICENOW_PASSWORD env vars if the
+#                           secret is not present.
+SERVICENOW_INSTANCE = os.getenv("SERVICENOW_INSTANCE", "")
+
+
+def _get_servicenow_credentials():
+    """Load ServiceNow username/password from Secrets Manager, falling back to env vars."""
+    secret_name = os.getenv("SERVICENOW_SECRET_NAME", "servicenow/credentials")
+    try:
+        import json
+        import boto3
+        client = boto3.client("secretsmanager", region_name=os.getenv("AWS_REGION", "us-east-1"))
+        creds = json.loads(client.get_secret_value(SecretId=secret_name)["SecretString"])
+        return creds["username"], creds["password"]
+    except Exception as e:
+        logger.warning("Could not load ServiceNow secret '%s' (%s); falling back to env vars.", secret_name, e)
+        return os.getenv("SERVICENOW_USERNAME", ""), os.getenv("SERVICENOW_PASSWORD", "")
+
 
 def get_servicenow_auth():
     """Get basic auth header for ServiceNow API"""
-    credentials = f"{SERVICENOW_USERNAME}:{SERVICENOW_PASSWORD}"
+    username, password = _get_servicenow_credentials()
+    credentials = f"{username}:{password}"
     encoded_credentials = base64.b64encode(credentials.encode()).decode()
     return {"Authorization": f"Basic {encoded_credentials}"}
 

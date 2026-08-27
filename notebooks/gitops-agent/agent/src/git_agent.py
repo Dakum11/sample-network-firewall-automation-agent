@@ -36,7 +36,7 @@ def get_secret(secret_name: str) -> str:
     response = client.get_secret_value(SecretId=secret_name)
     return response['SecretString']
 
-response = json.loads(get_secret("firewall-chatbot/azure-devops/pat"))
+response = json.loads(get_secret("firewall-automation/azure-devops/pat"))
 PAT_TOKEN = response["password"]
 VERBOSE = os.getenv("VERBOSE", "true").lower() == "true"
 
