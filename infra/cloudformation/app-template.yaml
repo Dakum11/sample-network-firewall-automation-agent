@@ -159,6 +159,9 @@ Resources:
       Memory: "2048"
       NetworkMode: awsvpc
       RequiresCompatibilities: [FARGATE]
+      RuntimePlatform:
+        CpuArchitecture: ARM64 # <-- Match the arm64-built image (was defaulting to X86_64)
+        OperatingSystemFamily: LINUX
       ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
       TaskRoleArn: !GetAtt TaskRole.Arn
       ContainerDefinitions:
