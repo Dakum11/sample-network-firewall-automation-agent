@@ -21,6 +21,7 @@ from subagent.gitops_tools import (
     create_pull_request,
     format_pr_description,
 )
+from subagent.servicenow_agent import servicenow
 from utils.account_details_utils import (
     DYNAMODB_ACCOUNT_METADATA_TABLE_NAME,
     DYNAMODB_DEPLOYMENT_STATE_TABLE_SUFFIX,
@@ -316,6 +317,7 @@ def initialize_agent(actor_id, session_id):
         tools=[
             query_account_details,
             firewall_logs_agent,
+            servicenow,
             clone_repo,
             commit_and_push,
             format_pr_description,
@@ -337,6 +339,7 @@ Your tools:
 6. format_pr_description - Format PR description with all required fields
 7. create_pull_request - Create pull request
 8. editor, file_read, file_write - File operations
+9. servicenow - ServiceNow change management and service catalog: create change requests, list/get change requests, and browse the service catalog. Use this whenever the user asks about ServiceNow change requests (CHG), raising a change ticket, or the service catalog.
 
 CRITICAL WORKFLOW for creating/modifying firewall rules:
 1. Understand requirements - Extract all IPs, CIDRs, ports, protocols

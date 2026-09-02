@@ -11,11 +11,16 @@
     - [Web Application Prerequisites (Optional)](#web-application-prerequisites-optional)
     - [Service quotas](#service-quotas)
     - [Supported Regions](#supported-regions)
-3. [Deployment Steps](#deployment-steps)
-4. [Deployment Validation](#deployment-validation)
-5. [Running the Guidance](#running-the-guidance)
-6. [Next Steps](#next-steps)
-7. [Cleanup](#cleanup)
+3. [Setting Up Optional Integrations](#setting-up-optional-integrations)
+    - [ServiceNow Integration Setup (from scratch)](#servicenow-integration-setup-from-scratch)
+    - [Azure DevOps Integration Setup (from scratch)](#azure-devops-integration-setup-from-scratch)
+    - [IPAM Integration Setup](#ipam-integration-setup)
+    - [Networking gotchas for AgentCore (VPC configuration)](#networking-gotchas-for-agentcore-vpc-configuration)
+4. [Deployment Steps](#deployment-steps)
+5. [Deployment Validation](#deployment-validation)
+6. [Running the Guidance](#running-the-guidance)
+7. [Next Steps](#next-steps)
+8. [Cleanup](#cleanup)
 
 ## Overview
 
@@ -261,6 +266,119 @@ This Guidance uses Amazon Bedrock AgentCore and Claude Sonnet 4 cross-region inf
 
 - US East (N. Virginia) — `us-east-1`
 - US West (Oregon) — `us-west-2`
+
+## Setting Up Optional Integrations
+
+The specialist agents talk to external systems (ServiceNow, Azure DevOps, an enterprise IPAM). If you already run these systems, just supply credentials. If you **don't** have them, the sections below walk you through standing up **free developer/test instances** so you can exercise the full workflow end to end. Each agent degrades gracefully: an unconfigured backend logs a warning and disables just that agent's tools, so you can set these up one at a time.
+
+Credentials for all integrations are read from **AWS Secrets Manager** — never hardcode them (this repository is public). The pattern is: create a secret, then point the agent at it via an environment variable.
+
+### ServiceNow Integration Setup (from scratch)
+
+The ServiceNow agent (`agent/src/subagent/servicenow_agent.py`) creates and queries **change requests** and browses the **service catalog** via the ServiceNow REST Table API using HTTP Basic authentication.
+
+#### 1. Get a free ServiceNow Personal Developer Instance (PDI)
+
+1. Sign up at [developer.servicenow.com](https://developer.servicenow.com) (free).
+2. From the top-right menu, choose **Manage → Instance → Request Instance**. Provisioning takes ~5 minutes.
+3. You'll receive an instance URL like `https://devXXXXXX.service-now.com` plus an `admin` username and password. A PDI ships pre-loaded with sample `change_request`, `sc_cat_item`, and `sc_category` data — ideal for testing.
+
+> PDIs hibernate after ~10 days of inactivity; wake them from the developer portal before testing.
+
+#### 2. Create a dedicated integration user (recommended over `admin`)
+
+Using a service account keeps the demo isolated and avoids MFA friction on the `admin` account.
+
+1. In your instance, open the Users list: `https://devXXXXXX.service-now.com/nav_to.do?uri=sys_user_list.do` → **New**.
+2. Set: **User ID** = `svc_firewall_agent`, a first/last name, and a **password with no special characters** (avoids URL/shell-escaping issues), e.g. `LabTest12345Abcd`.
+3. **Uncheck** "Password needs reset" and make sure **"Enable Multifactor Authentication" is unchecked**. Set **Active** = checked.
+4. Save, reopen the user, scroll to the **Roles** related list → **Edit**, and add:
+   - `admin` (simplest for a lab), or least-privilege `itil` + `catalog`, **AND**
+   - **`snc_basic_auth_api_access`** — **required** (see gotcha below).
+
+#### 3. Enable REST Basic auth for the integration user (critical gotcha)
+
+Modern ServiceNow instances ship with the **"Basic Auth — API Access Restriction"** feature enforced (property `glide.authenticate.basic_auth.restriction.enforce = true`). With it on, **only users holding the `snc_basic_auth_api_access` role may authenticate to the REST API with Basic auth** — everyone else gets an `HTTP 401 "User is not authenticated"` on *every* endpoint, identically whether or not credentials are sent (the request is rejected before the user is even evaluated).
+
+- **Symptom:** REST calls return 401 for every user and endpoint, but the same credentials log in fine through the web UI.
+- **Fix:** grant the `snc_basic_auth_api_access` role to your integration user (step 2.4 above). No instance-wide property change is required.
+
+Also verify **IP Address Access Control** (All → search "IP Address Access Control") is either empty/disabled or contains an **inbound Allow** rule that includes your egress IP — a default-deny with no allow rules also blocks all REST traffic.
+
+#### 4. Store the credentials in Secrets Manager
+
+The agent reads a JSON secret with keys `instance_url`, `username`, `password`. Create it without exposing the password on the command line:
+
+```bash
+# Build the secret JSON via a here-doc that prompts for the password (never echoed),
+# write it to a temp file, create the secret, then delete the temp file.
+python3 - > /tmp/snow_secret.json <<'PY'
+import json, getpass
+print(json.dumps({
+    "instance_url": "https://devXXXXXX.service-now.com",
+    "username": "svc_firewall_agent",
+    "password": getpass.getpass("ServiceNow password: "),
+}))
+PY
+
+aws secretsmanager create-secret \
+  --name "firewall-automation/servicenow/credentials" \
+  --description "ServiceNow credentials for the firewall automation ServiceNow agent" \
+  --secret-string "file:///tmp/snow_secret.json" \
+  --region us-east-1
+
+rm -f /tmp/snow_secret.json
+```
+
+The agent resolves the secret name from `SERVICENOW_SECRET_NAME` (default `firewall-automation/servicenow/credentials`) and the region from `SERVICENOW_SECRET_REGION` (default `AWS_REGION`, else `us-east-1`). The AgentCore execution role already grants `secretsmanager:GetSecretValue`.
+
+#### 5. Verify the integration (before deploying)
+
+A quick way to confirm connectivity and the role fix worked is to call the Table API directly:
+
+```bash
+SNOW_INSTANCE="https://devXXXXXX.service-now.com"
+SNOW_USER="svc_firewall_agent"
+# reads password without echoing it
+read -rs SNOW_PW; echo
+curl -s -u "$SNOW_USER:$SNOW_PW" \
+  "$SNOW_INSTANCE/api/now/table/change_request?sysparm_limit=3&sysparm_fields=number,short_description" \
+  -H "Accept: application/json"
+```
+
+A JSON list of change requests confirms success. `HTTP 401` means the `snc_basic_auth_api_access` role or IP Access Control still needs attention (see gotcha above).
+
+> **Regional note:** the ServiceNow secret must live in the region the agent runs in. If the container image pins a different `AWS_REGION`, pass `SERVICENOW_SECRET_REGION` (and `AWS_REGION`) as runtime environment variables at deploy time so the boto3 Secrets Manager client targets the correct region.
+
+### Azure DevOps Integration Setup (from scratch)
+
+The GitSecOps agent (`agent/src/subagent/gitops_tools.py`) clones a repo, commits Suricata rule changes, and opens pull requests via the Azure DevOps REST API. (A GitHub variant is available under `notebooks/gitops-agent/` — see [Next Steps](#next-steps) to swap providers.)
+
+1. Create a free organization at [dev.azure.com](https://dev.azure.com) using any Microsoft account.
+2. Create a project (e.g. `NetworkFirewall`).
+3. Initialize a Git repo in that project and add a rules file — you can seed it from `sample-data/suricata-rules-example.rules`.
+4. Generate a **Personal Access Token (PAT)**: user settings → **Personal Access Tokens → New Token**, with scopes **Code (Read & Write)** and **Pull Request Threads (Read & Write)**.
+5. Store the PAT in Secrets Manager (format `{"username": "...", "password": "<PAT>"}`):
+
+   ```bash
+   aws secretsmanager create-secret \
+     --name "firewall-automation/azure-devops/pat" \
+     --secret-string '{"username": "your-email@example.com", "password": "<YOUR_PAT>"}' \
+     --region us-east-1
+   ```
+6. Set these environment variables (in `.env` for local, or as runtime env vars at deploy): `AZURE_DEVOPS_ORG`, `AZURE_DEVOPS_PROJECT`, `REPO_NAME`, and `AZURE_DEVOPS_SECRET_NAME` (default `firewall-automation/azure-devops/pat`).
+
+### IPAM Integration Setup
+
+The IPAM agent validates IPs/CIDRs against an enterprise IPAM (EfficientIP SOLIDserver by default). If you don't run one, leave `IPAM_SECRET_NAME` unset — the agent disables IP-validation tools and continues. To connect one, store `{"username": "...", "password": "...", "ipam_url": "https://..."}` in Secrets Manager and set `IPAM_SECRET_NAME` (see `agent/src/utils/ipam_utils.py` to target a different IPAM product).
+
+### Networking gotchas for AgentCore (VPC configuration)
+
+When you deploy the AgentCore runtime with `networkMode: VPC`, the subnets and security groups must satisfy **all** of the following, or the update fails:
+
+- **Same VPC:** every subnet and security group must belong to the *same* VPC (mixing VPCs fails with `SubnetsAndSecurityGroupsInDifferentVpc`).
+- **Supported Availability Zone:** the subnet's AZ must be one AgentCore supports in your account (a failed update names the supported AZ **IDs**, e.g. `use1-az1/az2/az4`). Map AZ names to IDs with `aws ec2 describe-availability-zones --query 'AvailabilityZones[].{Name:ZoneName,Id:ZoneId}'`.
+- **Egress to the internet:** the agent must reach Bedrock and your integrations, so use a **private subnet with a NAT gateway route** (`0.0.0.0/0 → nat-...`) or a public subnet with an internet gateway. Confirm the security group allows outbound `443`.
 
 ## Deployment Steps
 

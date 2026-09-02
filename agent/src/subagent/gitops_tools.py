@@ -19,6 +19,7 @@ from strands.tools import tool
 AZURE_DEVOPS_ORG = os.getenv("AZURE_DEVOPS_ORG")
 AZURE_DEVOPS_PROJECT = os.getenv("AZURE_DEVOPS_PROJECT")
 REPO_NAME = os.getenv("REPO_NAME")
+AZURE_DEVOPS_SECRET_NAME = os.getenv("AZURE_DEVOPS_SECRET_NAME", "firewall-automation/azure-devops/pat")
 VERBOSE = os.getenv("VERBOSE", "true").lower() == "true"
 
 # Warn if git config is missing — agent can still serve other tools
@@ -44,7 +45,7 @@ def get_secret(secret_name: str) -> str:
 
 
 def get_repo_url() -> tuple[str, str]:
-    response = json.loads(get_secret("firewall-chatbot/azure-devops/pat"))
+    response = json.loads(get_secret(AZURE_DEVOPS_SECRET_NAME))
     username = response["username"]
     pat_token = response["password"]
 

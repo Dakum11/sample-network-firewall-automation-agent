@@ -2,10 +2,12 @@
 ServiceNow MCP agent with integrated tools
 """
 
+import json
 import logging
 import os
 import requests
 import base64
+import boto3
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from strands import Agent, tool
 from strands.models import BedrockModel
@@ -14,14 +16,39 @@ logger = logging.getLogger(__name__)
 
 app = BedrockAgentCoreApp()
 
-# ServiceNow configuration
-SERVICENOW_INSTANCE = "https://REPLACEME.service-now.com"
-SERVICENOW_USERNAME = "admin"
-SERVICENOW_PASSWORD = "REDACTED"
+# ServiceNow configuration is loaded from AWS Secrets Manager.
+# The secret (JSON) must contain: instance_url, username, password.
+# Override the secret name/region via env vars if needed.
+SERVICENOW_SECRET_NAME = os.getenv(
+    "SERVICENOW_SECRET_NAME", "firewall-automation/servicenow/credentials"
+)
+SERVICENOW_SECRET_REGION = os.getenv(
+    "SERVICENOW_SECRET_REGION", os.getenv("AWS_REGION", "us-east-1")
+)
+
+# Cache so we only hit Secrets Manager once per container lifetime.
+_servicenow_config = None
+
+
+def get_servicenow_config():
+    """Load and cache ServiceNow credentials from AWS Secrets Manager."""
+    global _servicenow_config
+    if _servicenow_config is None:
+        client = boto3.client("secretsmanager", region_name=SERVICENOW_SECRET_REGION)
+        resp = client.get_secret_value(SecretId=SERVICENOW_SECRET_NAME)
+        secret = json.loads(resp["SecretString"])
+        _servicenow_config = {
+            "instance": secret["instance_url"].rstrip("/"),
+            "username": secret["username"],
+            "password": secret["password"],
+        }
+    return _servicenow_config
+
 
 def get_servicenow_auth():
     """Get basic auth header for ServiceNow API"""
-    credentials = f"{SERVICENOW_USERNAME}:{SERVICENOW_PASSWORD}"
+    cfg = get_servicenow_config()
+    credentials = f"{cfg['username']}:{cfg['password']}"
     encoded_credentials = base64.b64encode(credentials.encode()).decode()
     return {"Authorization": f"Basic {encoded_credentials}"}
 
@@ -40,7 +67,7 @@ def servicenow_create_change_request(short_description: str, description: str = 
         if description:
             data["description"] = description
         
-        url = f"{SERVICENOW_INSTANCE}/api/now/table/change_request"
+        url = f"{get_servicenow_config()['instance']}/api/now/table/change_request"
         response = requests.post(url, headers=headers, json=data)
         response.raise_for_status()
         
@@ -60,7 +87,7 @@ def servicenow_list_change_requests(limit: int = 10, state: str = None):
         if state:
             params["sysparm_query"] = f"state={state}"
         
-        url = f"{SERVICENOW_INSTANCE}/api/now/table/change_request"
+        url = f"{get_servicenow_config()['instance']}/api/now/table/change_request"
         response = requests.get(url, headers=headers, params=params)
         response.raise_for_status()
         
@@ -73,7 +100,7 @@ def servicenow_get_change_request(change_id: str):
     try:
         headers = get_servicenow_auth()
         
-        url = f"{SERVICENOW_INSTANCE}/api/now/table/change_request/{change_id}"
+        url = f"{get_servicenow_config()['instance']}/api/now/table/change_request/{change_id}"
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         
@@ -93,7 +120,7 @@ def servicenow_list_catalog_items(limit: int = 10, category: str = None):
         if category:
             params["sysparm_query"] = f"category={category}"
         
-        url = f"{SERVICENOW_INSTANCE}/api/now/table/sc_cat_item"
+        url = f"{get_servicenow_config()['instance']}/api/now/table/sc_cat_item"
         response = requests.get(url, headers=headers, params=params)
         response.raise_for_status()
         
@@ -106,7 +133,7 @@ def servicenow_get_catalog_item(item_id: str):
     try:
         headers = get_servicenow_auth()
         
-        url = f"{SERVICENOW_INSTANCE}/api/now/table/sc_cat_item/{item_id}"
+        url = f"{get_servicenow_config()['instance']}/api/now/table/sc_cat_item/{item_id}"
         response = requests.get(url, headers=headers)
         response.raise_for_status()
         
@@ -124,7 +151,7 @@ def servicenow_list_catalog_categories(limit: int = 10):
             "sysparm_display_value": "true"
         }
         
-        url = f"{SERVICENOW_INSTANCE}/api/now/table/sc_category"
+        url = f"{get_servicenow_config()['instance']}/api/now/table/sc_category"
         response = requests.get(url, headers=headers, params=params)
         response.raise_for_status()
         
